@@ -185,8 +185,11 @@
     }
     private async Task GetUsers()
     { try{
+            if ((await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid, true)))
+            {
             orgUsers = await organizationUserService.GetUserListForOrganizationAsync(userInformation.UserInformationSqid, "", organizationSqid);
             orgInvitedUsers = await organizationUserService.GetInvitedUserListAsync(userInformation.UserInformationSqid, "", organizationSqid);
+        }
         }
 
         catch (System.Security.SecurityException se)

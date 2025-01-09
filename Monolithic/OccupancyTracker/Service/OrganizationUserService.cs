@@ -16,16 +16,14 @@ namespace OccupancyTracker.Service
         private readonly IMemcachedClient _memcachedClient;
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
-        private readonly IOrganizationUserService _organizationUserService;
 
         public OrganizationUserService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient,
-            IOccAuthorizationService authorizationService, IOrganizationUserService organizationUserService)
+            IOccAuthorizationService authorizationService)
         {
             _authorizationService = authorizationService;
             _organizationSqidsEncoderFactory = organizationSqidsEncoderFactory;
             _memcachedClient = memcachedClient;
             _contextFactory = contextFactory;
-            _organizationUserService = organizationUserService;
         }
 
         public async Task<List<OrganizationUser>> GetUserListForOrganizationAsync(string userInformationSqid, string ipAddress, string organizationSqid, bool forceCacheRefresh = false)
@@ -177,8 +175,7 @@ namespace OccupancyTracker.Service
                 organizationInvitationCodes.InvitationRedeemed = DateOnly.FromDateTime(DateTime.UtcNow);
                 context.OrganizationInvitationCodes.Update(organizationInvitationCodes);
                 await context.SaveChangesAsync();
-
-Working                return true;
+                return true;
             }
         }
 
