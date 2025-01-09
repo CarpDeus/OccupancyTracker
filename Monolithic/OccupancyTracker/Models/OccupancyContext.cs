@@ -74,7 +74,7 @@ namespace OccupancyTracker.Models
                 {
                     context.EmailProcessorPointers.Add(new EmailProcessorPointers()
                     {
-                        EmailProcessorQueueId = 1,
+                        EmailProcessorQueueId = 0,
                         EmailProcessorPointerDescription = "Default",
                         EmailProcessorPointerName = "Default"
                     });

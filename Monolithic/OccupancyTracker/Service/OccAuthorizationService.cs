@@ -294,17 +294,26 @@ namespace OccupancyTracker.Service
 
             if (!string.IsNullOrEmpty(organizationSqid))
             {
-                logOrg = await new OrganizationService(_contextFactory, _sqids, _memcachedClient, this).GetAsync(organizationSqid, user);
+                using (var _dbContext = _contextFactory.CreateDbContext())
+                {
+                    logOrg = await _dbContext.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
+                }
             }
 
             if (!string.IsNullOrEmpty(locationSqid))
             {
-                logLoc = await new LocationService(_contextFactory, _sqids, _memcachedClient, this).GetAsync(organizationSqid, locationSqid, user);
+                using (var _dbContext = _contextFactory.CreateDbContext())
+                {
+                    logLoc = await _dbContext.Locations.FirstOrDefaultAsync(x => x.LocationSqid == locationSqid);
+                }
             }
 
             if (!string.IsNullOrEmpty(entranceSqid))
             {
-                logEnt = await new EntranceService(_contextFactory, _sqids, _memcachedClient, this).GetAsync(organizationSqid, locationSqid, entranceSqid, user);
+                using (var _dbContext = _contextFactory.CreateDbContext())
+                {
+                    logEnt = await _dbContext.Entrances.FirstOrDefaultAsync(x => x.EntranceSqid == entranceSqid);
+                }
             }
 
             var invalidSecurityAttempt = new InvalidSecurityAttempt

@@ -133,8 +133,8 @@ namespace OccupancyTracker.Service
             }
             else
             {
-                string cacheKey = $"{userInformationSqid}:AdminOrgs";
-                if (orgs == null || forceCacheRefresh)
+                //string cacheKey = $"{userInformationSqid}:AdminOrgs";
+                if (orgs == null || orgs.Count==0 || forceCacheRefresh)
                 {
                     using (var _context = _contextFactory.CreateDbContext())
                     {

@@ -40,8 +40,8 @@ namespace OccupancyTracker
                 options.Scope = "openid profile email address phone";
             });
 
-            builder.Services.AddSingleton<OccupancyLogProcessor>();
-            builder.Services.AddScoped<OccupancyEmailProcessor>();
+            builder.Services.AddHostedService<OccupancyLogProcessor>();
+            builder.Services.AddHostedService<OccupancyEmailProcessor>();
             builder.Services.AddEnyimMemcached(builder.Configuration.GetSection("enyimMemcached"));
             //builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             //builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -78,7 +78,7 @@ namespace OccupancyTracker
             builder.Services.AddScoped<IEntranceCounterService, EntranceCounterService>();
             builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
             builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
-            builder.Services.AddScoped<ISendGridFactory, SendGridFactory>();
+            builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
             builder.Services.AddScoped<IMarkdownTextService, MarkdownTextService>();
 
             builder.Services.AddMvc()
@@ -153,6 +153,8 @@ namespace OccupancyTracker
                 .AddInteractiveServerRenderMode();
 
             app.MapHub<ChatHub>("/UpdateOccupancy");
+            
+            
             app.Run();
         }
     }

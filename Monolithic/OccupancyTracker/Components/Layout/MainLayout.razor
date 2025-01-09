@@ -1,8 +1,6 @@
 ﻿@inherits LayoutComponentBase
 @inject IHostEnvironment HostEnvironment
 @inject IOccAuthorizationService occAuthorizationService
-@inject OccupancyLogProcessor occupancyLogProcessor
-@inject OccupancyEmailProcessor occupancyEmailProcessor
 @inject NavigationManager NavigatorService
 
 <MudThemingProvider />
@@ -102,12 +100,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        
-        occupancyLogProcessor.StartExecuting();
-        occupancyEmailProcessor.StartExecuting();
- 
-        
             await base.OnInitializedAsync();
-        }
     }
+    
 }

@@ -16,14 +16,16 @@ namespace OccupancyTracker.Service
         private readonly IMemcachedClient _memcachedClient;
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
+        private readonly IOrganizationUserService _organizationUserService;
 
         public OrganizationUserService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient,
-            IOccAuthorizationService authorizationService)
+            IOccAuthorizationService authorizationService, IOrganizationUserService organizationUserService)
         {
             _authorizationService = authorizationService;
             _organizationSqidsEncoderFactory = organizationSqidsEncoderFactory;
             _memcachedClient = memcachedClient;
             _contextFactory = contextFactory;
+            _organizationUserService = organizationUserService;
         }
 
         public async Task<List<OrganizationUser>> GetUserListForOrganizationAsync(string userInformationSqid, string ipAddress, string organizationSqid, bool forceCacheRefresh = false)
@@ -135,6 +137,27 @@ namespace OccupancyTracker.Service
                 {
                     throw new Exception("Invalid invitation code");
                 }
+                // Add user to organization
+                var organizationUser = new OrganizationUser
+                {
+                    OrganizationId = organization.OrganizationId,
+                    UserInformationId = userInformation.UserInformationId,
+                    CreatedBy = userInformationSqid,
+                    CreatedDate = DateTime.UtcNow
+                };
+                context.OrganizationUsers.Add(organizationUser);
+                await context.SaveChangesAsync();
+
+                context.OrganizationUserRoles.Add(new OrganizationUserRole
+                {
+                    OrganizationUserId = organizationUser.OrganizationUsersId,
+                    RoleName = AuthorizationRecords.Roles.User.Name,
+                    OrganizationWide = true
+                });
+                await context.SaveChangesAsync();
+                userInformation.BelongsToOrganization = true;
+                context.UserInformation.Update(userInformation);
+                context.Entry(userInformation).State = EntityState.Modified;
 
                 if (await _authorizationService.HasAccessToOrganizationAsync(userInformationSqid, organization.OrganizationSqid))
                 {
@@ -153,21 +176,9 @@ namespace OccupancyTracker.Service
 
                 organizationInvitationCodes.InvitationRedeemed = DateOnly.FromDateTime(DateTime.UtcNow);
                 context.OrganizationInvitationCodes.Update(organizationInvitationCodes);
-
-                var organizationUser = new OrganizationUser
-                {
-                    OrganizationId = organization.OrganizationId,
-                    UserInformationId = userInformation.UserInformationId,
-                    StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                    UserStatusId = AuthorizationRecords.UserStatus.Approved.Id,
-                    CreatedBy = organizationInvitationCodes.CreatedBy,
-                    CreatedDate = DateTime.UtcNow
-                };
-
-                context.OrganizationUsers.Add(organizationUser);
                 await context.SaveChangesAsync();
 
-                return true;
+Working                return true;
             }
         }
 
