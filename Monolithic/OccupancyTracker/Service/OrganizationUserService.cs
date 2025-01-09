@@ -135,33 +135,6 @@ namespace OccupancyTracker.Service
                 {
                     throw new Exception("Invalid invitation code");
                 }
-                // Add user to organization
-                var organizationUser = new OrganizationUser
-                {
-                    OrganizationId = organization.OrganizationId,
-                    UserInformationId = userInformation.UserInformationId,
-                    CreatedBy = userInformationSqid,
-                    CreatedDate = DateTime.UtcNow
-                };
-                context.OrganizationUsers.Add(organizationUser);
-                await context.SaveChangesAsync();
-
-                context.OrganizationUserRoles.Add(new OrganizationUserRole
-                {
-                    OrganizationUserId = organizationUser.OrganizationUsersId,
-                    RoleName = AuthorizationRecords.Roles.User.Name,
-                    OrganizationWide = true
-                });
-                await context.SaveChangesAsync();
-                userInformation.BelongsToOrganization = true;
-                context.UserInformation.Update(userInformation);
-                context.Entry(userInformation).State = EntityState.Modified;
-
-                if (await _authorizationService.HasAccessToOrganizationAsync(userInformationSqid, organization.OrganizationSqid))
-                {
-                    return true;
-                }
-
                 if (userInformation.EmailAddress.ToLowerInvariant() != organizationInvitationCodes.EmailAddress.ToLowerInvariant())
                 {
                     throw new Exception("Invitation not for this user");
@@ -172,8 +145,33 @@ namespace OccupancyTracker.Service
                     throw new Exception("Invitation already redeemed");
                 }
 
+                if (!await _authorizationService.HasAccessToOrganizationAsync(userInformationSqid, organization.OrganizationSqid))
+                {
+                    // Add user to organization
+                    var organizationUser = new OrganizationUser
+                    {
+                        OrganizationId = organization.OrganizationId,
+                        UserInformationId = userInformation.UserInformationId,
+                        CreatedBy = userInformationSqid,
+                        CreatedDate = DateTime.UtcNow
+                    };
+                    context.OrganizationUsers.Add(organizationUser);
+                    await context.SaveChangesAsync();
+
+                    context.OrganizationUserRoles.Add(new OrganizationUserRole
+                    {
+                        OrganizationUserId = organizationUser.OrganizationUsersId,
+                        RoleName = AuthorizationRecords.Roles.User.Name,
+                        OrganizationWide = true
+                    });
+                    await context.SaveChangesAsync();
+                    userInformation.BelongsToOrganization = true;
+                    context.UserInformation.Update(userInformation);
+                    context.Entry(userInformation).State = EntityState.Modified;
+                }
                 organizationInvitationCodes.InvitationRedeemed = DateOnly.FromDateTime(DateTime.UtcNow);
                 context.OrganizationInvitationCodes.Update(organizationInvitationCodes);
+                context.Entry(organizationInvitationCodes).State = EntityState.Modified;
                 await context.SaveChangesAsync();
                 return true;
             }

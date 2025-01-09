@@ -27,10 +27,11 @@
 
         // Determine if we need to redirect the user
         ProtectedSessionStore.SetAsync("loggedInUserSqid", userInformation.UserInformationSqid);
-        var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query
-            .Split('&')
-            .FirstOrDefault(x => x.StartsWith("returnurl="))?
-            .Split('=')[1];
+        // var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query
+        //     .Split('&')
+        //     .FirstOrDefault(x => x.StartsWith("returnurl="))?
+        //     .Split('=')[1];
+        var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query;
         // Ensure Registration is complete
         if (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration)
         {
@@ -43,9 +44,15 @@
             }
         }
         //No registration issue
-        if (!string.IsNullOrEmpty(returnUri) && !NavigatorService.BaseUri.StartsWith(returnUri))
+        if (!string.IsNullOrEmpty(returnUri))
         {
-            NavigatorService.NavigateTo(returnUri);
+            var returnUrl = returnUri.Split('&')
+                                     .FirstOrDefault(x => x.StartsWith("returnurl="))?
+                                     .Split('=')[1];
+            if (!string.IsNullOrEmpty(returnUrl) && !NavigatorService.BaseUri.StartsWith(returnUrl))
+            {
+                NavigatorService.NavigateTo(returnUrl);
+            }
         }
         NavigatorService.NavigateTo("/");
         await base.OnInitializedAsync();
