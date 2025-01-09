@@ -1,0 +1,275 @@
+﻿@page "/orgs/{orgSqid}"
+@using OccupancyTracker.Components.Admin.Components
+@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
+@inject NavigationManager NavigatorService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>@pageTitle</PageTitle>
+<MudBreadcrumbs Items="_items"></MudBreadcrumbs>
+<div hidden="@hidden">
+    <MudText Typo="Typo.h6">@pageTitle</MudText>
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @ref="tabs" >
+
+        <MudTabPanel Text="Location List" Disabled="disableLocationList" ID="@("pn_Locations")">
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="LocationsNew" StartIcon="@Icons.Material.Filled.AddLocation">Add Location</MudButton>
+            <div hidden="@hideLocationList">
+                <LocationsList locations="@locations" orgSqid="@orgSqid" OnRefresh="ChildRefresh" userInformation="userInformation" />
+            </div>
+            <div hidden="@(!hideLocationList)">
+                <MudText Typo="Typo.body2">No locations have been added to this organization</MudText>
+            </div>
+        </MudTabPanel>
+        <MudTabPanel Text="Organization Details" ID="@("pn_Details")">
+            <OrganizationForm organization="@organization" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit" />
+        </MudTabPanel>
+        <MudTabPanel Text="Organization Users" Disabled="@disableUserList">
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="InviteUser" StartIcon="@Icons.Material.Filled.InsertInvitation">Invite User</MudButton>
+            <div hidden="@(hideUsersList)">
+                <OrganizationsUserList orgUsers="@orgUsers" organization="@organization" userInformation="@userInformation" OnRefresh="ChildRefresh" />
+            </div>
+            <div hidden="@(!hideUsersList)">
+                <MudText Typo="Typo.body2">No users belong to this  organization</MudText>
+            </div>
+
+        </MudTabPanel>
+
+        <MudTabPanel Text="Invited Users" Disabled="@disableInviteUserList">
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="InviteUser" StartIcon="@Icons.Material.Filled.InsertInvitation">Invite User</MudButton>
+            <div hidden="@hideInvitedUsersList">
+                <OrganizationsInvitedUserList orgUsers="@orgInvitedUsers" orgSqid="@orgSqid" OnRefresh="ChildRefresh" />
+            </div>
+            <div hidden="@(!hideInvitedUsersList)">
+                <MudText Typo="Typo.body2">No users have been invited to this organization</MudText>
+            </div>
+
+        </MudTabPanel>
+    </MudTabs>
+</div>
+<div hidden="@string.IsNullOrEmpty(errorMessage)">
+    <MudText Typo="Typo.h6" Color="Color.Error">@errorMessage</MudText>
+</div>
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    [Parameter]
+    public string orgSqid { get; set; }
+
+    private List<BreadcrumbItem> _items = new List<BreadcrumbItem>
+    {
+        new BreadcrumbItem("Orgs", href: "/orgs")
+    };
+    public string locationUri = "";
+    public string locationUriNew = "";
+    public string organizationSqid = "";
+    private Organization organization = new Organization();
+    private MudForm form;
+    private bool readOnlyForm = true;
+    private bool userCanEdit = false;
+    private bool hidden = false;
+    private string pageTitle = string.Empty;
+    private string errorMessage = string.Empty;
+    private List<Location> locations = new List<Location>();
+    private bool hideLocationList = false;
+    private bool hideUsersList = true;
+    private bool hideInvitedUsersList = true;
+    private MudTabs tabs;
+    private List<OrganizationUser> orgUsers;
+    private List<OrganizationInvitationCodes> orgInvitedUsers;
+
+    private bool disableUserList = true;
+    private bool disableInviteUserList = true;
+    private bool disableLocationList = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+            if (!userInformation.HasCompletedRegistration) NavigatorService.NavigateTo("/profile/edit");
+        }
+        if (orgSqid.ToLowerInvariant() == "new")
+        {
+            if (!userInformation.IsSuperAdmin && userInformation.BelongsToOrganization)
+            {
+
+                hidden = true;
+                errorMessage = "You do not have permission to create another organization";
+                Snackbar.Add(errorMessage, Severity.Error);
+            }
+            organizationSqid = string.Empty;
+            pageTitle = "Organization Details for New Organization";
+            readOnlyForm = false;
+            userCanEdit = true;
+            locations = new();
+            hideLocationList = false;
+        }
+        else
+        {
+            organizationSqid = orgSqid;
+            try
+            {
+                organization = await organizationService.GetAsync(organizationSqid, userInformation);
+                if(organization.CurrentStatus!=0) // If organization not active, only viewable by admins
+                {
+                    if(!(await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid,organizationSqid,true)))
+                    {
+                        NavigatorService.NavigateTo("/Error");
+                    }
+                }
+                locationUri = $"/orgs/{orgSqid}/locations";
+                await GetLocations();
+                await GetUsers();
+
+            }
+            catch(System.Security.SecurityException se)
+            {
+                NavigatorService.NavigateTo("/NoAccess");
+            }
+            catch (Exception ex)
+            {
+                NavigatorService.NavigateTo("/Error");
+            }
+            pageTitle = "Organization Details for " + organization.OrganizationName;
+        }
+
+        if (string.IsNullOrEmpty(organizationSqid))
+        {
+            readOnlyForm = false;
+            pageTitle = "Organization Details for New Organization";
+            userCanEdit = true;
+        }
+        if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid))
+        {
+            userCanEdit = true;
+        }
+        await SetTabs();
+        await base.OnInitializedAsync();
+    }
+
+    private async Task InviteUser()
+    {
+        var parameters = new DialogParameters<OrganizationUserInviteForm>
+        {
+            { x => x.organization, organization},
+            { x => x.userInformation, userInformation }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+        await DialogService.ShowAsync<OrganizationUserInviteForm>("Invite User", parameters, options);
+    }
+
+    private async Task GetLocations()
+    {
+        try
+        {
+            locations = await locationService.GetListAsync(userInformation,organizationSqid);
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        hideLocationList = locations.Count == 0;
+    }
+    private async Task GetUsers()
+    { try{
+            orgUsers = await organizationUserService.GetUserListForOrganizationAsync(userInformation.UserInformationSqid, "", organizationSqid);
+            orgInvitedUsers = await organizationUserService.GetInvitedUserListAsync(userInformation.UserInformationSqid, "", organizationSqid);
+        }
+
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        if (orgInvitedUsers == null) orgInvitedUsers = new();
+        if (orgUsers == null) orgUsers = new();
+
+        hideUsersList = orgUsers.Count == 0;
+        hideInvitedUsersList = orgInvitedUsers.Count == 0;
+    }
+
+    private void LocationsNew()
+    {
+        NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/new", true);
+    }
+
+    private async void ChildRefresh()
+    {
+        try
+        {
+            organization = await organizationService.GetAsync(organizationSqid, userInformation, true);
+            NavigatorService.Refresh(true);
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+
+    }
+    // protected override async Task OnAfterRenderAsync(bool firstRender)
+    // {
+    //     if (firstRender)
+    //     {
+    //         SetTabs();
+    //         this.StateHasChanged();
+    //     }
+    //     await base.OnAfterRenderAsync(firstRender);
+    // }
+
+    private async Task SetTabs()
+    {
+        if (orgSqid.ToLowerInvariant() == "new")
+        {
+
+            hideLocationList = true;
+            disableUserList = true;
+            disableInviteUserList = true;
+            disableLocationList = true;
+            tabs.ActivatePanel("pn_Details");
+        }
+        else
+        {
+            
+            hideLocationList = locations.Count == 0;
+            disableLocationList = false;
+            
+            if (userInformation.IsSuperAdmin || (await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid)))
+            {
+                disableUserList = false;
+                disableUserList = false;
+                disableInviteUserList = false;
+            }
+            else
+            {
+                disableUserList = true;
+                disableInviteUserList = true;
+                disableUserList = true;
+
+            }
+        }
+        
+    }
+
+ 
+
+}

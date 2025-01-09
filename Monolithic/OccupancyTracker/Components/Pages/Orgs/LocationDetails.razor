@@ -1,0 +1,293 @@
+﻿@page "/orgs/{orgSqid}/locations/{locationSqid}"
+@using OccupancyTracker.Components.Admin.Components
+@using MudBlazor.Components
+@inject NavigationManager NavigatorService
+
+@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IDialogService DialogService
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IEntranceService entranceService
+
+@inject MudBlazor.ISnackbar Snackbar
+
+<PageTitle>@pageTitle</PageTitle>
+<MudBreadcrumbs Items="_items"></MudBreadcrumbs>
+<div hidden="@hidden">
+    <MudText Typo="Typo.h6">@pageTitle</MudText>
+
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @ref="tabs">
+        <MudTabPanel Text="Location Details" ID="@("pn_Details")">
+
+            <LocationForm organization="@organization" location="@location" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit"></LocationForm>
+        </MudTabPanel>
+        <MudTabPanel Text="Location Entrances" ID="@("pn_Entrances")">
+            @* <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EntranceNew" StartIcon="@Icons.Material.Filled.Add">Add Entrance</MudButton> *@
+
+            <CascadingValue Value="entrances" Name="entranceList">
+                <EntrancesList  location="@location" organization="@organization" userInformation="@userInformation" 
+                OnRefresh="ChildRefresh" ShouldReRender="ShouldRender" HandleChangeEntranceStatus="@((args) => InvokedChangeStateEntrance(((string[], int,int))args))"
+                HandleEditingEntrance="@((args) => EditEntrance(((string,string))args))" />
+            </CascadingValue>
+
+        </MudTabPanel>
+    </MudTabs>
+
+
+
+
+</div>
+<div hidden="@string.IsNullOrEmpty(errorMessage)">
+    <MudText Typo="Typo.h6" Color="Color.Error">@errorMessage</MudText>
+</div>
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+
+    [Parameter]
+    public string orgSqid { get; set; }
+    [Parameter]
+    public string locationSqid { get; set; }
+
+    private bool hideEntranceList = false;
+    private EntrancesList entrancesList;
+
+    private List<BreadcrumbItem> _items = new List<BreadcrumbItem>();
+
+    public string locationUri = "";
+    public string locationUriNew = "";
+    public string organizationSqid = "";
+    private Organization organization = new Organization();
+    private Location location = new Location();
+    private List<Entrance> entrances = new List<Entrance>();
+    private MudForm form;
+    private bool readOnlyForm = true;
+    private bool userCanEdit = false;
+    private bool hidden = false;
+    private string pageTitle = string.Empty;
+    private string errorMessage = string.Empty;
+
+    private MudTabs tabs;
+    internal string formHeight = "25vh";
+    internal string tableHeight = "75vh";
+
+    private async void ChildRefresh() 
+    { 
+        await GetEntrances(true);
+        //    NavigatorService.Refresh(true); 
+        // entrancesList.Refresh();
+    }
+
+    private void SetBreadcrumbs()
+    {
+        _items = new List<BreadcrumbItem>
+    {
+        new BreadcrumbItem("Orgs", href: "/orgs"),
+        new BreadcrumbItem(organization.OrganizationName, href: $"/orgs/{orgSqid}"),
+        new BreadcrumbItem("Locations", href: $"/orgs/{orgSqid}/")
+    };
+    }
+
+
+    private async void EditEntrance((string editEntranceSqid, string other) args2)
+    {
+        string? editEntranceSqid = args2.Item1;
+        Entrance entrance = new Entrance { CreatedBy = userInformation.UserInformationSqid, LocationId = location.LocationId, OrganizationId = organization.OrganizationId };
+    
+        if (editEntranceSqid != "new")
+        {
+            entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, editEntranceSqid, userInformation);
+
+            if (entrance.LocationId != location.LocationId)
+            {
+                Snackbar.Add($"Entrance {editEntranceSqid} does not belong to Location", Severity.Error);
+                return;
+            }
+        }
+        var parameters = new DialogParameters<EntranceForm> { { x => x.organization, organization},
+        { x => x.location, location},
+        { x => x.userInformation, userInformation} ,
+        { x => x.organization, organization},
+        { x => x.location, location},
+        { x => x.entranceSqid, editEntranceSqid },
+        {x => x.entrance, entrance },
+        {x => x.saveButtonText, editEntranceSqid=="new" ? "Add" : "Save"  }
+        };
+
+        var dialog = await DialogService.ShowAsync<EntranceForm>(editEntranceSqid == "new" ? "Create Entrance" : "Edit Entrance", parameters);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {   //NavigatorService.Refresh(true);
+            await GetEntrances();
+            this.StateHasChanged();
+        }
+    }
+
+
+
+
+
+    private async Task InvokedChangeStateEntrance((string[], int, int) args)
+    {
+        Entrance changedEnt = await entranceService.ChangeStatusAsync(args.Item1[0], args.Item1[1], args.Item1[2], args.Item2, args.Item3, userInformation);
+        if (changedEnt.CurrentStatus == args.Item3)
+        {
+
+            await GetEntrances();
+            StateHasChanged();
+        }
+
+    }
+
+    // private void Locations()
+    // {
+    //     NavigatorService.NavigationManager.NavigateTo($"/orgs/{orgSqid}/locations");
+    // }
+
+
+
+    // private async void EntranceNew()
+    // {
+    //     DialogOptions dialogOptions = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick = false };
+
+    //     var parameters = new DialogParameters<EntranceForm>();
+    //     parameters.Add(x => x.userInformation, userInformation);
+    //     parameters.Add(x => x.location, location);
+    //     parameters.Add(x => x.organization, organization);
+    //     parameters.Add(x => x.entranceSqid, "new");
+    //     var dialog = await DialogService.ShowAsync<EntranceForm>("Edit Location", parameters, dialogOptions);
+    //     var result = await dialog.Result;
+
+    //     if (!result.Canceled)
+    //     {
+    //         ChildRefresh();
+    //     }
+    // }
+
+
+    // private async void ChildRefresh()
+    // {
+    //     try
+    //     {
+    //         await GetEntrances(true);
+    //         //NavigatorService.Refresh(true);
+    //     }
+    //     catch (System.Security.SecurityException se)
+    //     {
+    //         NavigatorService.NavigateTo("/NoAccess");
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         NavigatorService.NavigateTo("/Error");
+    //     }
+
+    // }
+    private async Task<bool> GetOrganization()
+    {
+        try
+        {
+            organization = await organizationService.GetAsync(orgSqid, userInformation);
+            SetBreadcrumbs();
+            return true;
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        return false;
+    }
+    private async Task<bool> GetEntrances(bool forceCacheRefresh = false)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(locationSqid))
+                entrances = await entranceService.GetListAsync(userInformation,orgSqid, locationSqid,"",forceCacheRefresh);
+            if (entrances == null) entrances = new List<Entrance>();
+            hideEntranceList = entrances.Count == 0;
+
+            return true;
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        return false;
+    }
+
+    private async Task<bool> GetLocation()
+    {
+        try
+        {
+            location = await locationService.GetAsync(orgSqid, locationSqid, userInformation);
+            await GetEntrances();
+            return true;
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        return false;
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        }
+
+        if (await GetOrganization())
+        {
+            if (locationSqid.ToLowerInvariant() == "new")
+            {
+                if (!userInformation.IsSuperAdmin && ! await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid))
+                {
+
+                    hidden = true;
+                    errorMessage = "You do not have permission to create locations for this organization";
+                    Snackbar.Add(errorMessage, Severity.Error);
+                }
+                pageTitle = $"Location Details for new location belonging to {organization.OrganizationName}";
+                entrances = new();
+                readOnlyForm = false;
+                userCanEdit = true;
+                tabs.ActivatePanel("pn_Details");
+            }
+            else
+            {
+
+                if (await GetLocation())
+                {
+                    pageTitle = $"Location Details for {location.LocationName}";
+                    tabs.ActivatePanel("pn_Entrances");
+                }
+            }
+
+            if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid)
+            || await occAuthorizationService.IsLocAdminAsync(userInformation.UserInformationSqid, orgSqid, locationSqid))
+            {
+                userCanEdit = true;
+
+            }
+        }
+    }
+
+}

@@ -1,0 +1,113 @@
+﻿@inherits LayoutComponentBase
+@inject IHostEnvironment HostEnvironment
+@inject IOccAuthorizationService occAuthorizationService
+@inject OccupancyLogProcessor occupancyLogProcessor
+@inject OccupancyEmailProcessor occupancyEmailProcessor
+@inject NavigationManager NavigatorService
+
+<MudThemingProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" >
+        <MudGrid>
+            <MudItem xs="1">
+                <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="DrawerToggle" />
+            </MudItem>
+            <MudItem xs="9"><MudText Typo="Typo.h5" Class="ml-3" Align="Align.Center">Occupancy Tracker (monolith)</MudText></MudItem>
+            <MudItem xs="2" >
+                <MudButton Variant="Variant.Text" Href="/profile/edit" Size="Size.Small" Class="pa-4 mud-theme-primary">@loggedInUserEMail</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2" >
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent>
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    @if (HostEnvironment.IsProduction())
+
+    {
+        <span>An error has occurred.</span>
+    }
+
+    else
+
+    {
+        <span>An unhandled exception occurred.</span>
+    }
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+@code {
+
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    private bool handledRedirection = false;
+    private string loggedInUserEMail = "";
+    private bool _drawerOpen = true;
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+    protected override async void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var state = await AuthenticationStateTask;
+            if (state.User.Identity != null && state.User.Identity.IsAuthenticated)
+            {
+                if (NavigationManager.Uri.Contains("/trackers/"))
+                {
+                    handledRedirection = true;
+                }
+                userInformation = await occAuthorizationService.GetFromStateAsync(state);
+
+                var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query
+                    .Split('&')
+                    .FirstOrDefault(x => x.StartsWith("returnurl="))?
+                    .Split('=')[1];
+                loggedInUserEMail = userInformation.HasCompletedRegistration ? $"{userInformation.FirstName} {userInformation.LastName}" : userInformation.EmailAddress;
+                if (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration)
+                {
+                    if (!NavigatorService.BaseUri.StartsWith("/profile"))
+                    {
+                        string profileEditUri = "/profile/edit";
+                        if (!string.IsNullOrEmpty(returnUri))
+                            profileEditUri = $"{profileEditUri}?returnurl={returnUri}";
+                        NavigatorService.NavigateTo(profileEditUri);
+                    }
+                }
+                else //No registration issue
+                {
+                    if (!string.IsNullOrEmpty(returnUri) && !NavigatorService.BaseUri.StartsWith(returnUri))
+                    {
+                        NavigatorService.NavigateTo(returnUri);
+                    }
+                }
+            }
+        }
+        base.OnAfterRender(firstRender);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        
+        occupancyLogProcessor.StartExecuting();
+        occupancyEmailProcessor.StartExecuting();
+ 
+        
+            await base.OnInitializedAsync();
+        }
+    }
+}

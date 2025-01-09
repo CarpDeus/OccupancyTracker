@@ -1,0 +1,47 @@
+﻿@page "/redeeminvitation/{inviteCode}"
+
+@using Microsoft.AspNetCore.Authorization
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+
+@attribute [Authorize]
+
+<PageTitle>Auth</PageTitle>
+
+<h1>You are authenticated</h1>
+
+<AuthorizeView>
+    Hello @context.User.Identity?.Name!
+<br />
+ <table style="border: 1px solid black;">
+            <tr style="border: 1px solid black; padding: 2px;">
+                <th style="border: 1px solid black; padding: 2px;">Claim Type</th>
+                <th style="border: 1px solid black; padding: 2px;">Value</th>
+            </tr>
+
+            @foreach (var item in userClaims)
+            {
+                <tr style="border: 1px solid black; padding: 2px;">
+                    <td style="border: 1px solid black; padding: 2px;">@item.Key</td>
+                    <td style="border: 1px solid black; padding: 2px;">@item.Value</td>
+                </tr>
+            }
+        </table>
+
+</AuthorizeView>
+
+@code {
+    private Dictionary<string,string> userClaims = new Dictionary<string, string>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await GetAuthenticationStateAsync.GetAuthenticationStateAsync();
+        userClaims = new Dictionary<string, string>();
+        foreach(var claim in  authState.User.Claims)
+        {
+            userClaims.Add(claim.Type, claim.Value);
+        }
+
+    }
+    
+}

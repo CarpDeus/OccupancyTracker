@@ -1,0 +1,61 @@
+﻿
+@if (CurrentDataStatus == Statuses.DataStatus.Active)
+{
+    <MudText Color="Color.Primary">Active</MudText>
+    <MudTooltip Text="Delete">
+    <MudButton ButtonType="ButtonType.Button" OnClick="@(() =>InvokeChangeStatus(Statuses.DataStatus.Deleted))" StartIcon="@Icons.Material.Filled.Delete" 
+       IconColor="Color.Warning" IconSize="Size.Small"/>
+      </MudTooltip>
+}
+@if (CurrentDataStatus == Statuses.DataStatus.Deleted)
+{
+    <MudText Color="Color.Warning">Deleted</MudText>
+    <MudTooltip Text="Undelete">
+<MudButton  ButtonType="ButtonType.Button" OnClick="@(() =>InvokeChangeStatus(Statuses.DataStatus.Active))" StartIcon="@Icons.Material.Filled.Undo" 
+    Size="Size.Small"  IconColor="Color.Primary" IconSize="Size.Small"/>
+    </MudTooltip>
+      <MudTooltip Text="Permanently Delete">
+<MudButton  ButtonType="ButtonType.Button" OnClick="@(() =>InvokeChangeStatus(Statuses.DataStatus.PermanentlyDeleted))" 
+    Size="Size.Small"     StartIcon="@Icons.Material.Filled.DeleteForever" IconColor="Color.Error" IconSize="Size.Small"/>
+    </MudTooltip>
+}
+@if (ShowUndelete && CurrentDataStatus == Statuses.DataStatus.PermanentlyDeleted)
+{
+    <MudText Color="Color.Error">Permanently Deleted</MudText>
+    @if(ShowUndelete)
+    {
+        <MudTooltip Text="Recover to Deleted">
+    <MudButton ButtonType="ButtonType.Button" OnClick="@(() =>InvokeChangeStatus(Statuses.DataStatus.Deleted))" 
+         StartIcon="@Icons.Material.Filled.Undo" IconColor="Color.Warning" IconSize="Size.Small"/>
+        </MudTooltip>
+    }
+}
+
+@code {
+    [Parameter] public int CurrentStatus { get; set; }
+    [Parameter] public string[] Ids { get; set; }
+    [Parameter] public bool ShowUndelete { get; set; }
+    [Parameter] public EventCallback<(string[] , int, int )> HandleStatusChange { get; set; }
+
+    private Statuses.DataStatus CurrentDataStatus;
+    private bool showActivateFromDeleted = false;
+    private bool showPermanentDeleteFromDeleted = false;
+    private bool showDeleteFromActive = false;
+    private bool showRecoverFromPermanentDelete = false;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        CurrentDataStatus = Statuses.DataStatus.FromId(CurrentStatus);
+        showActivateFromDeleted = Statuses.DataStatus.ValidChangeStates(CurrentDataStatus.Id).Contains(0);
+        showDeleteFromActive = Statuses.DataStatus.ValidChangeStates(CurrentDataStatus.Id).Contains(1);
+        showPermanentDeleteFromDeleted = Statuses.DataStatus.ValidChangeStates(CurrentDataStatus.Id).Contains(2);
+    }
+
+
+    private async Task InvokeChangeStatus(Statuses.DataStatus newStatus)
+    {
+            await HandleStatusChange.InvokeAsync((Ids, CurrentDataStatus.Id, newStatus.Id));
+    }
+
+}

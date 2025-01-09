@@ -1,0 +1,51 @@
+﻿@using OccupancyTracker.Components.Admin.Components
+@inject ISqidsEncoderFactory SqidsEncoderFactory
+<MudDataGrid T="OrganizationUser" Items="@orgUsers" SortMode="SortMode.Multiple" MultiSelection="false"
+FooterClass="d-none"
+Dense="true" Striped="true" Bordered="true" Hover="true" >
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Organization Users</MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+    </ToolBarContent>
+    <Columns>
+        @* <SelectColumn T="Location" /> *@
+        <TemplateColumn CellClass="d-flex justify-end">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    @{
+                        string url = $"/orgs/{organization.OrganizationSqid}/users/{context.Item.UserInformation.UserInformationSqid}";
+                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
+                    }
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.UserInformation.FirstName" Title="Location Name" Sortable="true" />
+        <PropertyColumn Property="x => x.UserInformation.LastName" Title="Description" Sortable="true" />
+        <PropertyColumn Property="x => x.UserInformation.EmailAddress" Title="Current Status" Sortable="true"/>
+        <PropertyColumn Property="x => x.UserInformation.UserInformationSqid" Title="Number of Entrances" Sortable="true" />
+
+    </Columns>
+    <PagerContent >
+        <MudDataGridPager  T="Location" />
+    </PagerContent>
+</MudDataGrid>
+
+@code {
+    [Parameter]
+    public EventCallback OnRefresh { get; set; }
+    [Parameter] public List<OrganizationUser> orgUsers { get; set; }
+    [Parameter] public Organization organization { get; set; }
+    [Parameter] public UserInformation userInformation { get; set; }
+    private string _searchString = string.Empty;
+
+    
+    private bool FilterFunc(Entrance searchEntrance)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchEntrance.EntranceName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntrance.EntranceDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+}

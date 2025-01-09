@@ -1,0 +1,124 @@
+﻿@page "/orgs"
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOrganizationService organizationService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IOccAuthorizationService occAuthorizationService
+@inject NavigationManager NavigatorService
+
+@attribute [Authorize]
+<PageTitle>Organizations</PageTitle>
+<MudGrid>
+    <MudItem xs="12">
+        <MudDataGrid T="Organization" Items="@organizations" SortMode="SortMode.Multiple" MultiSelection="false"
+                     FooterClass="d-none"
+                     Dense="true" Striped="true" Bordered="true" Hover="true" QuickFilter="@FilterFunc">
+            <ToolBarContent>
+                <MudText Typo="Typo.h4">Organizations</MudText>
+                <MudSpacer />
+                <MudTextField Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+
+            </ToolBarContent>
+            <Columns>
+
+                <TemplateColumn CellClass="d-flex" Title="Open">
+                    <CellTemplate>
+                        <MudStack Row="true" Spacing="1">
+                            @{
+                                string url = $"/orgs/{context.Item.OrganizationSqid}";
+                                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
+                            }
+                            
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Property="x => x.OrganizationName" Title="Organization Name" Sortable="true" />
+                <PropertyColumn Property="x => x.OrganizationDescription" Title="Description" Sortable="true" />
+                <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true" />
+                <PropertyColumn Property="x => (x.LocationCount ==null ? 0: x.LocationCount)" Title="Number of Locations" Sortable="true" />
+                <TemplateColumn CellClass="d-flex" Title="Current State">
+                    <CellTemplate>
+                        <MudStack Row="true" Spacing="1">
+                            @{
+                                string[] ids = new string[] { context.Item.OrganizationSqid };
+                                 <OccupancyTracker.Components.Pages.Components.ChangeStatus 
+                                 HandleStatusChange="@((args) => InvokedChangeState(((string[], int,int))args))" Ids="ids" 
+                                 ShowUndelete="userInformation.IsSuperAdmin" 
+                                 CurrentStatus="context.Item.CurrentStatus" />
+                            }
+                            
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <MudDataGridPager T="Organization" />
+            </PagerContent>
+        </MudDataGrid>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+
+    private bool dense = false;
+    private bool hover = true;
+    private string _searchString = "";
+    internal string userInformationSqid = "";
+    private Organization organization = new Organization();
+    private List<Organization> organizations;
+
+
+    
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        }
+        organizations = await organizationService.GetListAsync(userInformation);
+        
+
+    }
+
+
+    private async Task InvokedChangeState((string[], int, int) args)
+    {
+        Organization changedOrg = await organizationService.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3, userInformation);
+        if (changedOrg.CurrentStatus == args.Item3)
+            NavigatorService.Refresh(true);
+    }
+
+    private async Task GetProfile()
+    {
+        try
+        {
+            organizations = await organizationService.GetListAsync(userInformation);
+            StateHasChanged();
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+        
+    }
+
+    private bool FilterFunc(Organization searchOrganization)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchOrganization.OrganizationName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchOrganization.OrganizationDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+}

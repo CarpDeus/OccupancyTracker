@@ -1,0 +1,207 @@
+﻿@page "/trackers/{entranceCounterSqid}"
+@layout Layout.EmptyLayout
+
+@using OccupancyTracker.DTO
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject OccupancyTracker.IService.IEntranceCounterService entranceCounterService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@using Microsoft.EntityFrameworkCore
+@using OccupancyTracker.Models
+@inject MudBlazor.ISnackbar Snackbar
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@using OccupancyTracker.DTO
+
+<MudThemingProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@if (timerNotFound)
+{
+    <PageTitle>Tracker not found</PageTitle>
+    <MudText Typo="Typo.h1" Color="Color.Error">Error: Tracker not found</MudText>
+    <MudText Typo="Typo.h2" Color="Color.Error">An error occurred while processing your request.</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Primary">
+        An error occured and was logged. We apologize for the issue.
+    </MudText>
+    <MudLink Href="/" Typo="Typo.body2"> <MudIcon Icon="@Icons.Material.Filled.Home" /> Go Home</MudLink>
+
+}
+else
+{
+    <MudContainer Style="overflow-y: scroll">
+        <MudGrid>
+            <MudItem xs="12">
+                <MudChip T="string" Typo="Typo.body1" Color="@currentOccupancyColor">Current Occupancy: @(currentOccupancy)</MudChip>
+                <MudChip T="string" Typo="Typo.body1" Color="Color.Info">Maximum Occupancy: @(maxOccupancy)</MudChip>
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.h4">Entering <MudIcon Icon="@Icons.Material.Filled.TrendingUp" /></MudText>
+            </MudItem>
+            <MudItem xs="12">
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(1))"><MudText Color="Color.Info" Typo="Typo.h4">1</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(2))"><MudText Color="Color.Info" Typo="Typo.h4">2</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(3))"><MudText Color="Color.Info" Typo="Typo.h4">3</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(4))"><MudText Color="Color.Info" Typo="Typo.h4">4</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(5))"><MudText Color="Color.Info" Typo="Typo.h4">5</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(6))"><MudText Color="Color.Info" Typo="Typo.h4">6</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(7))"><MudText Color="Color.Info" Typo="Typo.h4">7</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(8))"><MudText Color="Color.Info" Typo="Typo.h4">8</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(9))"><MudText Color="Color.Info" Typo="Typo.h4">9</MudText></MudButton>
+                <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(10))"><MudText Color="Color.Info" Typo="Typo.h4">10</MudText></MudButton>
+            </MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.h4">Leaving <MudIcon Icon="@Icons.Material.Filled.TrendingDown" /></MudText>
+            </MudItem>
+            <MudItem xs="12">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-1))"><MudText Color="Color.Info" Typo="Typo.h4">1</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-2))"><MudText Color="Color.Info" Typo="Typo.h4">2</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-3))"><MudText Color="Color.Info" Typo="Typo.h4">3</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-4))"><MudText Color="Color.Info" Typo="Typo.h4">4</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-5))"><MudText Color="Color.Info" Typo="Typo.h4">5</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-6))"><MudText Color="Color.Info" Typo="Typo.h4">6</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-7))"><MudText Color="Color.Info" Typo="Typo.h4">7</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-8))"><MudText Color="Color.Info" Typo="Typo.h4">8</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-9))"><MudText Color="Color.Info" Typo="Typo.h4">9</MudText></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-10))"><MudText Color="Color.Info" Typo="Typo.h4">10</MudText></MudButton>
+            </MudItem>
+            <MudItem xs="12">
+                <MudForm @ref="form">
+                    <MudGrid>
+                        <MudItem xs="12">
+                            <MudNumericField Label="Amount to change" @bind-Value="occupancyChange" Min="0" Max="2500" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(occupancyChange))">Entering</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(occupancyChange*-1))">Exiting</MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </MudForm>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+}
+
+
+@code {
+    [Parameter]
+    public string? entranceCounterSqid { get; set; }
+
+    private EntranceCounterDto? entranceCounter;
+    private bool counterIsValid = true;
+    private string locationSqid = string.Empty;
+
+
+
+
+    private MudForm form;
+
+    private bool entryButtonsDisabled = false;
+    private string OrgName = string.Empty;
+    private string LocationName = string.Empty;
+    private string EntryName = string.Empty;
+    private int currentOccupancy = 0;
+    private int maxOccupancy = 0;
+    private int occupancyChange = 0;
+    private int OccupancyThresholdWarning = 0;
+    private Color currentOccupancyColor = Color.Success;
+    PeriodicTimer periodicTimer = new(TimeSpan.FromSeconds(5));
+    private bool timerNotFound = false;
+
+    // SignalR
+    private HubConnection? hubConnection;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        entranceCounter = await entranceCounterService.GetCounterForTrackerAsync(entranceCounterSqid);
+        if (entranceCounter != null)
+        {
+            timerNotFound = false;
+            locationSqid = entranceCounter.LocationSqid;
+            if (entranceCounter == null)
+            {
+                Snackbar.Add("Entrance Counter not found", Severity.Error);
+                counterIsValid = false;
+            }
+            else
+            {
+                OrgName = entranceCounter.OrganizationName;
+                LocationName = entranceCounter.LocationName;
+                EntryName = entranceCounter.EntranceName;
+                currentOccupancy = entranceCounter.CurrentOccupancy;
+                maxOccupancy = entranceCounter.MaxOccupancy;
+                OccupancyThresholdWarning = entranceCounter.OccupancyThresholdWarning;
+                hubConnection = new HubConnectionBuilder()
+                  .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
+                  .Build();
+                Hubs.ChatHub chatHub = new Hubs.ChatHub();
+
+                hubConnection.On<string, int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
+                {
+                    if (rlocationSqid == locationSqid)
+                    {
+                        currentOccupancy = rCurrentOccupancy;
+                        OccupancyThresholdWarning = rWarningOccupancy;
+                        IsThresholdExceeded();
+                        InvokeAsync(StateHasChanged);
+                    }
+                });
+
+                await hubConnection.StartAsync();
+                IsThresholdExceeded();
+            }
+        }
+        else timerNotFound = true;
+    }
+    
+    private async void IncrementCounter(int count)
+    {
+        currentOccupancy = await entranceCounterService.UpdateCountAsync(entranceCounter.EntranceCounterSqid, count);
+        hubConnection.InvokeAsync("UpdateOccupancy", locationSqid, currentOccupancy, OccupancyThresholdWarning);
+        IsThresholdExceeded();
+    }
+
+
+    private void IsThresholdExceeded()
+    {
+        entryButtonsDisabled = false;
+        if (currentOccupancy >= maxOccupancy)
+        {
+            currentOccupancyColor = Color.Error;
+            entryButtonsDisabled = true;
+        }
+        else if (currentOccupancy >= OccupancyThresholdWarning)
+        {
+            currentOccupancyColor = Color.Warning;
+        }
+        else
+        {
+            currentOccupancyColor = Color.Transparent;
+        }
+    }
+
+    private async void GetCount()
+    {
+        currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
+        IsThresholdExceeded();
+
+    }
+    // async void RunTimer()
+    // {
+    //     while (await periodicTimer.WaitForNextTickAsync())
+    //     {
+    //         GetCount();
+    //         await InvokeAsync(StateHasChanged);
+    //     }
+    // }
+
+
+
+}

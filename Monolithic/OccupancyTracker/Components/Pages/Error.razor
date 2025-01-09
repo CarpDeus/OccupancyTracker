@@ -1,0 +1,21 @@
+﻿@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Error</PageTitle>
+<MudText Typo="Typo.h1" Color="Color.Error">Error</MudText>
+<MudText Typo="Typo.h2" Color="Color.Error">An error occurred while processing your request.</MudText>
+<MudText Typo="Typo.body1" Color="Color.Primary">
+    An error occured and was logged. We apologize for the issue.
+</MudText>
+<MudLink Href="/" Typo="Typo.body2"> <MudIcon Icon="@Icons.Material.Filled.Home" /> Go Home</MudLink>
+
+@code{
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

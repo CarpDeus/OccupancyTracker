@@ -1,0 +1,119 @@
+﻿@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject IOccAuthorizationService occAuthorizationService
+@inject MudBlazor.ISnackbar Snackbar
+@inject NavigationManager NavigatorService
+
+
+<MudForm @ref="form" Model="location" @bind-ReadOnly="@readOnly">
+    <MudTextField  ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="location.LocationName" Label="Location Name" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationDescription" Label="Location Description" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Lines="numberDescriptionLines"></MudTextField>
+    <hr />
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.City" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.State" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.Country" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <hr />
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.PhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.PhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    
+    <MudDivider />
+    <MudText Typo="Typo.h6">Occupancy</MudText>
+<MudGrid>
+    <MudItem  class="xs-6">
+    <MudPaper  class="pa-4"><MudTextField  ShrinkLabel Margin="Margin.Dense" T="int" @bind-Value="location.MaxOccupancy" Label="Maximum" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField></MudPaper> 
+    </MudItem>
+    
+    <MudItem  class="xs-6">
+    <MudPaper  class="pa-4"><MudTextField  ShrinkLabel Margin="Margin.Dense" T="int" @bind-Value="location.OccupancyThresholdWarning" Label="Threshold Warning" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+        </MudPaper>
+        </MudItem>>
+    </MudGrid>
+    <MudDivider />
+    
+    @if (userCanEdit && readOnly)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@CanEdit">Edit</MudButton>
+    }
+    @if (!readOnly)
+    {
+        <MudButton  Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">Save</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@Cancel">Cancel</MudButton>
+    }
+</MudForm>
+
+
+@code {
+    [Parameter] public Organization organization { get; set; }
+    [Parameter] public Location location { get; set; }
+    [Parameter] public UserInformation userInformation { get; set; }
+    [Parameter] public bool readOnly { get; set; }
+    [Parameter] public bool userCanEdit { get; set; }
+
+    private int numberDescriptionLines = 1;
+
+    private MudForm form;
+
+    private void CanEdit()
+    {
+        readOnly = false;
+        numberDescriptionLines = 5;
+        this.StateHasChanged();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (location.LocationId==0)
+        {
+            userCanEdit = true;
+        }
+        numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
+
+    }
+    private async void Cancel()
+    {
+        if (location.LocationId == 0)
+        { location = new Location(); }
+        else
+        { location = await locationService.GetAsync(organization.OrganizationSqid, location.LocationSqid, userInformation);
+            readOnly = true;
+        }
+        this.StateHasChanged();
+    }
+
+   
+
+    private async void Save()
+    {
+        bool isNew = location.LocationId == 0;
+
+        if (isNew)
+        {
+            location.CreatedBy = userInformation.UserInformationSqid;
+            location.OrganizationId = organization.OrganizationId;
+            location.CreatedDate = DateTime.Now;
+        }
+        else
+        {
+            location.ModifiedBy = userInformation.UserInformationSqid;
+            location.ModifiedDate = DateTime.Now;
+        }
+        await locationService.SaveAsync(location, organization.OrganizationSqid, userInformation);
+
+        string snackMessage = isNew ? "Location Created" : "Location Updated";
+        Snackbar.Add(snackMessage, Severity.Success);
+        readOnly = true;
+        if (isNew)
+        {
+            NavigatorService.NavigateTo($"/orgs/{organization.OrganizationSqid}/locations/{location.LocationSqid}", true);
+        }
+        else 
+        {
+            numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
+            this.StateHasChanged();
+        }
+
+    }
+}

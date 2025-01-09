@@ -1,0 +1,229 @@
+﻿@page "/admin/organizations"
+@using OccupancyTracker.Components.Admin.Components
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOrganizationService organizationService
+@inject IOccAuthorizationService occAuthorizationService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager NavManager
+
+<MudDataGrid T="Organization" Items="@organizations" SortMode="SortMode.Multiple" Filterable="true" QuickFilter="@FilterFunc">
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Entities</MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Rounded.Add" OnClick="@(()=>Edit(""))" />
+    </ToolBarContent>
+    <Columns>
+        
+        <PropertyColumn Property="x => x.OrganizationName" Title="Organization Name" Sortable="true" Filterable="true" />
+        <PropertyColumn Property="x => x.OrganizationDescription" Title="Description" Sortable="true" Filterable="true" />
+        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true" Filterable="true" />
+        <PropertyColumn Property="x => x.LocationCount" Title="Number of Locations" Sortable="true" Filterable="false" />
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="Organization" />
+    </PagerContent>
+</MudDataGrid>
+
+@* <MudTable Items="@GetEntities()" Dense="@dense" Hover="@hover" Filter="new Func<Organization, bool>(FilterFunc)" @bind-entity="organization">
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Entities</MudText>
+        <MudSpacer />
+        
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Rounded.Add" OnClick="@(()=>Edit(""))" />
+    </ToolBarContent>
+    <HeaderContent>
+        <MudTh>Entity Name</MudTh>
+        <MudTh>Entity Description</MudTh>
+        <MudTh>Current Status</MudTh>
+        <MudTh># Locations</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="EntityName">@context.OrganizationName</MudTd>
+            <MudTd DataLabel="EntityDescription">@context.OrganizationDescription</MudTd>
+            <MudTd DataLabel="CurrentStatusDescription">@context.CurrentStatusDescription</MudTd>
+            <MudTd DataLabel="NumberOfLocations"> @context.LocationCount </MudTd>
+        <MudTd DataLabel="">
+                <MudFab @onclick="@(()=>Edit(@context.OrganizationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Edit" Size="Size.Small" />
+                <MudFab Href="@($"/admin/{@context.OrganizationSqid}/")" StartIcon="@Icons.Material.Filled.List" Size="Size.Small" />
+                @if (@context.CurrentStatusDescription == "Suspended") {
+                    <MudFab @onclick="@(()=>Activate(@context.OrganizationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+                    <MudFab @onclick="@(()=>Delete(@context.OrganizationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
+                }
+                @if (@context.CurrentStatusDescription == "Active")
+                {
+                    <MudFab @onclick="@(()=>Suspend(@context.OrganizationSqid))" Color
+                    ="Color.Primary" StartIcon
+                    ="@Icons.Material.Filled.Delete" Size
+                    ="Size.Small" />
+                }
+                @if (@context.CurrentStatusDescription == "Deleted")
+                {
+                    <MudFab @onclick="@(()=>Undelete(@context.OrganizationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+                }
+            </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+            </MudTable> *@
+
+
+
+@code {
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    private bool dense = false;
+    private bool hover = true;
+    private string _searchString = "";
+    internal string userInformationSqid = "";
+    private Organization organization = new Organization();
+    private List<Organization> organizations ;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await GetAuthenticationStateAsync.GetAuthenticationStateAsync();
+        userInformation = await occAuthorizationService.GetFromStateAsync(authState);
+
+    }
+
+    private async Task<List<Organization>> GetLocations()
+    {
+
+        organizations = await organizationService.GetListAsync(userInformationSqid);
+        return organizations;
+    }
+
+    // quick filter - filter globally across multiple columns with the same input
+    private Func<Organization, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.OrganizationName.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (x.OrganizationDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if(x.CurrentStatusDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    };
+
+    private bool FilterFunc(Organization searchEntity)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchEntity.OrganizationName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntity.OrganizationDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+    private async void Suspend(string entitySqid)
+    {
+        try
+        {
+            await organizationService.SuspendAsync(entitySqid, userInformationSqid);
+            Snackbar.Add("Entity Suspended", Severity.Success);
+        }
+        catch(InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Suspending Entity {ex.Message}", Severity.Error);
+        }
+        catch(Exception ex)
+        {
+            Snackbar.Add("Error Suspending Entity", Severity.Error);
+        }
+    }
+    private async void Delete(string entitySqid)
+    {
+        try
+        {
+            await organizationService.DeleteAsync(entitySqid, userInformationSqid);
+            Snackbar.Add("Entity Deleted", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Deleting Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Deleting Entity", Severity.Error);
+        }
+    }
+    private async void Activate(string entitySqid, string userInformationSqid)
+    {
+        try
+        {
+            organizationService.ActivateAsync(entitySqid, userInformationSqid);
+            Snackbar.Add("Entity Activated", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Activating Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Activating Entity", Severity.Error);
+        }
+    }
+    private async void Undelete(string entitySqid)
+    {
+        try
+        {
+            await organizationService.UndeleteAsync(entitySqid, userInformationSqid);
+            Snackbar.Add("Entity Moved to suspended", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Activating Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Activating Entity", Severity.Error);
+        }
+    }
+    private async void Save()
+    {
+        if (organization.OrganizationId == 0)
+        {
+            organization.CreatedBy = userInformation.UserInformationSqid;
+            organization.CreatedDate = DateTime.Now;
+        }
+        else
+        {
+            organization.ModifiedBy = userInformation.UserInformationSqid;
+            organization.ModifiedDate = DateTime.Now;
+        }
+        await organizationService.SaveAsync(organization, userInformationSqid);
+        Snackbar.Add("Entity Saved", Severity.Success);
+        organization = new Organization();
+        GetLocations();
+    }
+    async Task Edit(string sqid)
+    {
+        DialogOptions dialogOptions = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick =true };
+        var parameters = new DialogParameters<OrganizationEditor>();// { { x => x.sqid, sqid } };
+        var dialog = await DialogService.ShowAsync<OrganizationEditor>("Edit Entity", parameters, dialogOptions);
+        var result = await dialog.Result;
+        GetLocations();
+    }
+
+    async Task AddLocation(string sqid)
+    {
+        DialogOptions dialogOptions = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick =true };
+        var parameters = new DialogParameters<LocationEditor>();
+        parameters.Add(x => x.organizationSqid, sqid);
+        parameters.Add(x => x.locationSqid, "");
+        var dialog = await DialogService.ShowAsync<LocationEditor>("Add Location", parameters, dialogOptions);
+        var result = await dialog.Result;
+        GetLocations();
+    }
+
+}

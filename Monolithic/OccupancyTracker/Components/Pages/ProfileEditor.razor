@@ -1,0 +1,183 @@
+﻿@page "/profile/edit"
+@page "/profile/edit/{sqid}"
+@attribute [Authorize]
+@using OccupancyTracker.Components.Admin.Components
+@using OccupancyTracker.Components.Pages.Components
+@using Microsoft.AspNetCore.WebUtilities
+
+@inject IAuthorizationService AuthorizationService
+@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject NavigationManager NavManager
+@inject IDialogService DialogService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IOrganizationUserService organizationUserService
+<PageTitle>Your Information</PageTitle>
+
+<MudForm @ref="form" Model="editedUser" @bind-ReadOnly="@readOnly">
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.FirstName" Label="First Name"  Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.LastName" Label="Last Name" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <br />
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.City" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.State" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.Country" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <br />
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+</MudForm>
+<MudGrid>
+    <MudItem xs="3">
+        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
+            @if (readOnly)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Edit">Edit</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">Save</MudButton> 
+
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@DiscardEdit">Discard Edit</MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+        <MudItem xs="3">
+        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
+            @if (canCreateOrganization)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Href="/orgs/new">Create an organzation</MudButton>
+            }
+            else
+            {
+                <MudLink Href="/orgs">View Your Organizations</MudLink>
+            }
+        </MudPaper>
+    </MudItem>
+            <MudItem xs="6">
+        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
+            <MudForm>
+                 <div class="d-flex align-center justify-space-between">
+                <MudTextField Margin="Margin.Dense" T="string" @bind-Value="invitationCode" Label="Invitation code" Variant="Variant.Filled" /><MudButton Variant="Variant.Filled" @bind-Color="@buttonColor" StartIcon="@Icons.Material.Filled.Redeem" @bind-Enabled="@buttonsDisabled" OnClick="@RedeemInvite">Redeem Invitation</MudButton>
+                </div>
+            </MudForm>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+
+
+@code {
+
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    [Parameter]
+    public string sqid { get; set; }
+
+    private MudForm form;
+    private UserInformation editedUser = new UserInformation();
+    private bool readOnly = true;
+    private bool dirtyData = false;
+    private string saveButtonText = "SaveAsync";
+    private bool canCreateOrganization = false;
+    Dictionary<string, string> profileOrgs = new Dictionary<string, string>();
+
+    private Color buttonColor = Color.Primary;
+    private string invitationCode = "";
+    private bool buttonsDisabled = false;
+
+
+    private void SetButtonState(bool UserCompletedRegistration)
+    {
+        buttonsDisabled = !UserCompletedRegistration;
+        buttonColor = UserCompletedRegistration ? Color.Primary : Color.Transparent;
+    }
+
+    private Task Edit()
+    {
+        readOnly= false;
+        return Task.CompletedTask;        
+    }
+
+    private async Task<Task> DiscardEdit()
+    {
+        editedUser = await occAuthorizationService.GetAsync(editedUser.UserInformationSqid);
+        readOnly = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task<Task> Save()
+    {
+        await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
+        Snackbar.Add("User Information Saved", Severity.Success);
+        readOnly = true;
+        return Task.CompletedTask;
+    }
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        canCreateOrganization =( !userInformation.BelongsToOrganization || userInformation.IsSuperAdmin);
+        if (!string.IsNullOrEmpty(sqid))
+        {
+            if (userInformation.UserInformationSqid != sqid && !userInformation.IsSuperAdmin)
+            {
+                Snackbar.Add("You are not authorized to edit this profile", Severity.Error);
+                NavigationManager.NavigateTo("/profile/edit");
+            }
+            else
+            {
+                editedUser = await occAuthorizationService.GetAsync(sqid);
+            }
+        }
+        else editedUser = userInformation;
+        SetButtonState(userInformation.HasCompletedRegistration);
+
+        var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("invitationCode", out var _invitationCode))
+        {
+            if (!string.IsNullOrEmpty(_invitationCode))
+            {
+                invitationCode = _invitationCode;
+            }
+        }
+        if (!userInformation.HasCompletedRegistration)
+        {
+            Edit();
+        }
+        await base.OnInitializedAsync();
+    }
+
+
+
+
+
+
+
+    private async Task<Task> RedeemInvite()
+    {
+        if (!userInformation.HasCompletedRegistration)
+        {
+            Snackbar.Add("You must complete your profile before you can redeem an invitation", Severity.Error);
+            return Task.CompletedTask; 
+        }
+        try{
+            if(await organizationUserService.RedeemInvitationAsync(userInformation.UserInformationSqid, "", invitationCode))
+                Snackbar.Add("Invitation Redeemed", Severity.Success);
+            this.StateHasChanged();
+        }
+        catch (Exception e)
+        {
+            Snackbar.Add($"Error redeeming invitation\r\n{e.Message}", Severity.Error);
+        }
+        return Task.CompletedTask;
+    }
+
+}

@@ -1,0 +1,106 @@
+﻿@page "/orgs/{orgSqid}/locations"
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOrganizationService organizationService
+@inject ILocationService locationService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IOccAuthorizationService occAuthorizationService
+@inject NavigationManager NavigatorService
+
+@attribute [Authorize]
+<PageTitle>@pageTitle</PageTitle>
+<MudGrid>
+    <MudItem xs="2">
+        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="LocationsNew">Add Location</MudButton>
+    </MudItem>
+    <MudItem xs="10">
+<MudText Typo="Typo.h6">@pageTitle</MudText>
+<MudDataGrid T="Location" Items="@locations" SortMode="SortMode.Multiple" MultiSelection="false"
+             RowClick="@RowClicked"
+             Dense="true" Striped="true" Bordered="true" Hover="true" QuickFilter="@FilterFunc">
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Locations</MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+    </ToolBarContent>
+    <Columns>
+
+        <PropertyColumn Property="x => x.LocationName" Title="Location Name" Sortable="true" />
+        <PropertyColumn Property="x => x.LocationDescription" Title="Description" Sortable="true" />
+        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true"/>
+        <PropertyColumn Property="x => x.EntranceCount" Title="Number of Entrances" Sortable="true" />
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="Organization" />
+    </PagerContent>
+</MudDataGrid>
+    </MudItem>
+</MudGrid>
+
+
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+    [Parameter] public string orgSqid { get; set; }
+
+    private string pageTitle = "";
+    private bool dense = false;
+    private bool hover = true;
+    private string _searchString = "";
+    internal string userInformationSqid = "";
+    private Organization organization = new Organization();
+    private List<Location> locations;
+
+
+    private void RowClicked(DataGridRowClickEventArgs<Location> args)
+    {
+        if(args!= null && ! string.IsNullOrEmpty(args.Item.LocationSqid))
+        {
+
+            NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/{args.Item.LocationSqid}");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        }
+        try
+        {
+            organization = await organizationService.GetAsync(orgSqid, userInformation);
+            pageTitle = $"Locations for {organization.OrganizationName}";
+            locations = await locationService.GetListAsync(userInformation,organization.OrganizationSqid, "");
+            
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+
+    }
+
+    private void LocationsNew()
+    {
+        NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/new");
+    }
+
+    private bool FilterFunc(Location searchLocation)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchLocation.LocationName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchLocation.LocationDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+}

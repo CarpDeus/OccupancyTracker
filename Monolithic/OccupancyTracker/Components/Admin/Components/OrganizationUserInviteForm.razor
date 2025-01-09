@@ -1,0 +1,57 @@
+﻿@inject MudBlazor.ISnackbar Snackbar
+@inject IOrganizationUserService organizationUserService
+
+
+
+<MudDialog>
+    <TitleContent>
+        Organization User Invite
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2">Enter the email addresses of the users you would like to invite to this organization. Separate multiple email addresses with a comma, semi-colon or put on separate lines</MudText>
+        <MudTextField Label="EmailAddresses" @bind-Value="emailAddresses" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit">Ok</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private MudDialogInstance MudDialog { get; set; }
+    [Parameter]
+    public Organization organization { get; set; }
+    [Parameter]
+    public UserInformation userInformation { get; set; }
+
+    private string emailAddresses = string.Empty;
+
+    private async void Submit(){
+        List<string> emailsToProcess = new();
+        if (emailAddresses.Contains(","))
+        {
+            emailsToProcess = emailAddresses.Split(",").ToList();
+        }
+        else if (emailAddresses.Contains(";"))
+        {
+            emailsToProcess = emailAddresses.Split(";").ToList();
+        }
+        else if (emailAddresses.Contains("\n"))
+        {
+            emailsToProcess = emailAddresses.Split("\n").ToList();
+        }
+        else
+        {
+            emailsToProcess.Add(emailAddresses);
+        }
+        foreach (string email in emailsToProcess)
+        {
+             await organizationUserService.InviteUserToOrganizationAsync(userInformation.UserInformationSqid, "", organization.OrganizationSqid, email);
+        }
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+    
+
+    private void Cancel() => MudDialog.Cancel();
+}

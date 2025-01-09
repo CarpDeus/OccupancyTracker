@@ -1,0 +1,37 @@
+﻿@page "/admin/misc"
+@using OccupancyTracker.Components.Admin.Components
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOccAuthorizationService occAuthorizationService
+@inject IAdminUtilsService adminUtils
+@inject NavigationManager NavManager
+ 
+<MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ClearCache">Clear Cache</MudButton>
+
+
+
+@code {
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    private bool dense = false;
+    private bool hover = true;
+    private string _searchString = "";
+    internal string userInformationSqid = "";
+    private Organization organization = new Organization();
+    private List<Organization> organizations ;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await GetAuthenticationStateAsync.GetAuthenticationStateAsync();
+        userInformation = await occAuthorizationService.GetFromStateAsync(authState);
+
+    }
+    private Task ClearCache()
+    {
+        adminUtils.ClearCache();
+        return Task.CompletedTask; 
+    }
+
+}

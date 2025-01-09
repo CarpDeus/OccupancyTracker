@@ -1,0 +1,96 @@
+﻿@page "/orgs/{organizationSqid}/users/{organizationUserSqid}"
+@using OccupancyTracker.Components.Admin.Components
+@using OccupancyTracker.DTO
+@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
+@inject NavigationManager NavigatorService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudText Typo="Typo.h3">User Rights for @userName</MudText>
+<MudDivider />
+<MudDataGrid T="OrganizationUserRolesDto" Items="@organizationUserRoles" SortMode="SortMode.Multiple" MultiSelection="false"
+             FooterClass="d-none"
+             Dense="true" Striped="true" Bordered="true" Hover="true">
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Locations</MudText>
+        <MudSpacer />
+        <MudTextField Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+    </ToolBarContent>
+    <Columns>
+        <TemplateColumn CellClass="d-flex" Title="Open">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    @{
+
+                        string url = $"/orgs/{orgSqid}/locations/{context.Item.LocationSqid}";
+                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
+                    }
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.LocationName" Title="Location Name" Sortable="true" />
+        <PropertyColumn Property="x => x.LocationDescription" Title="Description" Sortable="true" />
+        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true" />
+        <PropertyColumn Property="x =>(x.EntranceCount ==null ? 0 : x.EntranceCount)" Title="Number of Entrances" Sortable="true" />
+        <PropertyColumn Property="x => x.MaxOccupancy" Title="Max Occupancy" Sortable="true" />
+        <PropertyColumn Property="x => x.CurrentOccupancy" Title="CurrentOccupancy" Sortable="true" />
+
+        <TemplateColumn CellClass="d-flex" Title="Current State">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    @{
+
+                        string[] ids = new string[] { orgSqid, (string)context.Item.LocationSqid };
+                        <OccupancyTracker.Components.Pages.Components.ChangeStatus HandleStatusChange="@((args) => InvokedChangeState(((string[], int,int))args))"
+                                                                                   Ids="ids"
+                                                                                   ShowUndelete="userInformation.IsSuperAdmin"
+                                                                                   CurrentStatus="context.Item.CurrentStatus" />
+                    }
+
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="Location" />
+    </PagerContent>
+</MudDataGrid>
+
+
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+
+    [Parameter]
+    public string organizationSqid { get; set; }
+
+    [Parameter]
+    public string organizationUserSqid { get; set; }
+
+    private UserInformation organizationUser = new();
+    private List<OrganizationUserRolesDto> organizationUserRoles = new();
+
+    private string userName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+
+        }
+        if (!userInformation.HasCompletedRegistration) NavigatorService.NavigateTo("/profile/edit");
+        organizationUser = await occAuthorizationService.GetAsync(organizationUserSqid);
+        userName = organizationUser.HasCompletedRegistration ? $"{organizationUser.FirstName} {organizationUser.LastName} ": organizationUser.Email;
+        organizationUserRoles = await organizationUserService.GetOrganizationUserRoles(organizationUserSqid, organizationSqid, "", true);
+    }
+}
