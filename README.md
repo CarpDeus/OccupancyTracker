@@ -5,6 +5,6 @@ When my job was eliminated in 2024, I realized that this application would be a 
 
 > Getting a product to market, even if it is not fully finished, is a better return then burning money on a product that no one may want.
 
-So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Okta](https://www.okta.com/) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
+So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
 
  
