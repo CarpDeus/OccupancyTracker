@@ -101,7 +101,7 @@
         hubConnection = new HubConnectionBuilder()
           .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
           .Build();
-        Hubs.ChatHub chatHub = new Hubs.ChatHub();
+        Hubs.OccupancyTrackerHub chatHub = new Hubs.OccupancyTrackerHub();
 
         hubConnection.On<string,int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
         {

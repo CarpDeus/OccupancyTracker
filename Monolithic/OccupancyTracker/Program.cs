@@ -152,7 +152,7 @@ namespace OccupancyTracker
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
 
-            app.MapHub<ChatHub>("/UpdateOccupancy");
+            app.MapHub<OccupancyTrackerHub>("/UpdateOccupancy");
             
             
             app.Run();

@@ -1,6 +1,7 @@
 ﻿@page "/trackers/{entranceCounterSqid}"
 @layout Layout.EmptyLayout
 
+@implements IDisposable
 @using OccupancyTracker.DTO
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject OccupancyTracker.IService.IOrganizationService organizationService
@@ -113,10 +114,18 @@ else
     private Color currentOccupancyColor = Color.Success;
     PeriodicTimer periodicTimer = new(TimeSpan.FromSeconds(5));
     private bool timerNotFound = false;
-
     // SignalR
     private HubConnection? hubConnection;
 
+    void  IDisposable.Dispose()
+    {
+        if (hubConnection != null)
+        {
+            hubConnection.SendAsync("LeaveLocationAsync", locationSqid);
+            hubConnection.StopAsync();
+            hubConnection.DisposeAsync();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -141,7 +150,7 @@ else
                 hubConnection = new HubConnectionBuilder()
                   .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
                   .Build();
-                Hubs.ChatHub chatHub = new Hubs.ChatHub();
+                Hubs.OccupancyTrackerHub occupancyTrackerHub = new Hubs.OccupancyTrackerHub();
 
                 hubConnection.On<string, int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
                 {
@@ -153,8 +162,9 @@ else
                         InvokeAsync(StateHasChanged);
                     }
                 });
-
                 await hubConnection.StartAsync();
+                await hubConnection.SendAsync("JoinLocationAsync", locationSqid);
+
                 IsThresholdExceeded();
             }
         }
@@ -193,15 +203,6 @@ else
         IsThresholdExceeded();
 
     }
-    // async void RunTimer()
-    // {
-    //     while (await periodicTimer.WaitForNextTickAsync())
-    //     {
-    //         GetCount();
-    //         await InvokeAsync(StateHasChanged);
-    //     }
-    // }
-
 
 
 }
