@@ -1,0 +1,18 @@
+﻿@inject IMarkdownTextService MarkdownTextService
+<MudMarkdown Value="@markdownText"></MudMarkdown>
+
+@code {
+    [Parameter] public required string PageName { get; set; }
+    [Parameter] public required string TextIdentifier { get; set; }
+
+    private string markdownText = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var markdown = await MarkdownTextService.GetAsync(PageName, TextIdentifier);
+        markdownText = markdown.MarkdownContent;
+    }
+
+
+
+}

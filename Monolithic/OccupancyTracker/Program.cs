@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
+
 using OccupancyTracker.Components;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
@@ -10,6 +11,7 @@ using OccupancyTracker.Service;
 using Microsoft.AspNetCore.ResponseCompression;
 using OccupancyTracker.Hubs;
 using System.Text.Json.Serialization;
+using MudBlazor;
 
 namespace OccupancyTracker
 {
@@ -24,6 +26,7 @@ namespace OccupancyTracker
                 .AddInteractiveServerComponents();
 
             builder.Services.AddMudServices();
+            builder.Services.AddMudMarkdownServices();
 
             builder.Services.AddScoped<TokenProvider>();
 
@@ -76,6 +79,7 @@ namespace OccupancyTracker
             builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
             builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
             builder.Services.AddScoped<ISendGridFactory, SendGridFactory>();
+            builder.Services.AddScoped<IMarkdownTextService, MarkdownTextService>();
 
             builder.Services.AddMvc()
                 .AddJsonOptions(o =>

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using OccupancyTracker.Models;
 
@@ -12,9 +13,11 @@ using OccupancyTracker.Models;
 namespace OccupancyTracker.Models.Migrations
 {
     [DbContext(typeof(OccupancyContext))]
-    partial class OccupancyContextModelSnapshot : ModelSnapshot
+    [Migration("20250109144915_202501090948")]
+    partial class _202501090948
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
