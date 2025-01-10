@@ -1,5 +1,6 @@
 ﻿using Enyim.Caching;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
@@ -12,18 +13,20 @@ namespace OccupancyTracker.Service
 {
     public class OrganizationUserService : IOrganizationUserService
     {
+        private readonly IConfiguration _configuration;
         private readonly IDbContextFactory<OccupancyContext> _contextFactory;
         private readonly IMemcachedClient _memcachedClient;
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
 
         public OrganizationUserService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient,
-            IOccAuthorizationService authorizationService)
+            IOccAuthorizationService authorizationService, IConfiguration configuration)
         {
             _authorizationService = authorizationService;
             _organizationSqidsEncoderFactory = organizationSqidsEncoderFactory;
             _memcachedClient = memcachedClient;
             _contextFactory = contextFactory;
+            _configuration = configuration;
         }
 
         public async Task<List<OrganizationUser>> GetUserListForOrganizationAsync(string userInformationSqid, string ipAddress, string organizationSqid, bool forceCacheRefresh = false)
@@ -93,13 +96,14 @@ namespace OccupancyTracker.Service
                 context.OrganizationInvitationCodes.Update(organizationInvitationCodes);
                 await context.SaveChangesAsync();
 
+                string domainName = _configuration.GetSection("OccupancyDomain").Get<string>();
                 var sendGridData = new SendGridData
                 {
                     FromEmailAddress = "websupport@secure-scalable.solutions",
                     FromName = "WebSupport",
                     Subject = $"Invitation to join Occupancy Tracker for {organization.OrganizationName}",
-                    HtmlContent = $"<p>You have been invited to join Occupancy Tracker for {organization.OrganizationName}. Please click <a href='https://occupancytracker.secure-scalable.solutions/profile/edit?invitationCode={organizationInvitationCodes.InvitationCode}'>here</a> to accept the invitation.</p>",
-                    PlainTextContent = $"You have been invited to join Occupancy Tracker for {organization.OrganizationName}. Please open https://occupancytracker.secure-scalable.solutions and register/login and then enter the invitation code {organizationInvitationCodes.InvitationCode}.",
+                    HtmlContent = $"<p>You have been invited to join Occupancy Tracker for {organization.OrganizationName}. Please click <a href='https://{domainName}/profile/edit?invitationCode={organizationInvitationCodes.InvitationCode}'>here</a> to accept the invitation. Or open https://{domainName} and register/login and then enter the invitation code {organizationInvitationCodes.InvitationCode} or enter {organizationInvitationCodes.InvitationCode} in the Redeem invitation box on  <a href='https://{domainName}/profile/edit'>Profile Edit</p>",
+                    PlainTextContent = $"You have been invited to join Occupancy Tracker for {organization.OrganizationName}. Please open https://{domainName} and register/login and then enter the invitation code {organizationInvitationCodes.InvitationCode}.",
                     ToEmailAddress = email
                 };
 

@@ -81,13 +81,25 @@ namespace OccupancyTracker.Models
                     context.SaveChanges();
                 }
 
-                if (!context.MarkdownText.Any())
+                if (!context.MarkdownText.Any(x => x.PageName == "privacy" && x.TextIdentifier == "body"))
                 {
                     context.MarkdownText.Add(new MarkdownText()
                     {
                         PageName = "privacy",
                         TextIdentifier = "body",
                         MarkdownContent = privacyPolicy,
+                        CurrentStatus = Statuses.DataStatus.Active.Id
+                    });
+                    context.SaveChanges();
+                }
+
+                if (!context.MarkdownText.Any(x => x.PageName == "terms" && x.TextIdentifier == "body"))
+                {
+                    context.MarkdownText.Add(new MarkdownText()
+                    {
+                        PageName = "terms",
+                        TextIdentifier = "body",
+                        MarkdownContent = termsOfService,
                         CurrentStatus = Statuses.DataStatus.Active.Id
                     });
                     context.SaveChanges();
@@ -100,6 +112,49 @@ namespace OccupancyTracker.Models
                 //}
             }
         }
+
+        const string termsOfService = @"**Terms of Service**
+
+**Effective Date:** Secure-Scalable.Solutions, LLC
+
+**1. Introduction**
+Welcome to Secure-Scalable.Solutions LLC (“Company”, “we”, “our”, “us”). These Terms of Service (“Terms”) govern your use of our multi-tenant SaaS web application (“Service”) provided by Secure-Scalable.Solutions, LLC. By accessing or using the Service, you agree to be bound by these Terms. If you do not agree with any part of the Terms, you may not use the Service.
+
+**2. Accounts**
+- **Account Creation:** To use our Service, you must create an account by providing accurate and complete information. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account.
+- **Account Termination:** We reserve the right to suspend or terminate your account if you violate these Terms or engage in any activity that may harm the Service or its users.
+
+**3. Use of the Service**
+- **License:** We grant you a limited, non-exclusive, non-transferable, and revocable license to access and use the Service in accordance with these Terms.
+- **Prohibited Activities:** You agree not to:
+  - Use the Service for any unlawful purpose or in violation of any local, state, national, or international law.
+  - Use the Service to transmit any harmful or disruptive content, including viruses, spam, or malware.
+  - Interfere with or disrupt the integrity or performance of the Service.
+
+**4. Data and Privacy**
+- **Data Collection:** We collect, use, and share data as described in our Privacy Policy. By using the Service, you agree to our data practices.
+- **Compliance:** You are responsible for ensuring that your use of the Service complies with all applicable data protection and privacy laws.
+
+**5. Intellectual Property**
+- **Ownership:** All content, features, and functionality of the Service are and will remain the exclusive property of Secure-Scalable.Solutions, LLC and its licensors.
+- **Restrictions:** You may not copy, modify, distribute, sell, or lease any part of the Service or its content without our prior written consent.
+
+**6. Limitation of Liability**
+To the maximum extent permitted by law, Secure-Scalable.Solutions, LLC and its affiliates, officers, directors, employees, agents, and licensors will not be liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of profits or revenues, whether incurred directly or indirectly, or any loss of data, use, goodwill, or other intangible losses, resulting from:
+- Your use of or inability to use the Service;
+- Any unauthorized access to or use of our servers and/or any personal information stored therein;
+- Any bugs, viruses, trojan horses, or other harmful code that may be transmitted to or through the Service;
+- Any errors or omissions in any content or for any loss or damage incurred as a result of the use of any content posted, emailed, transmitted, or otherwise made available through the Service.
+
+**7. Governing Law**
+These Terms shall be governed by and construed in accordance with the laws of [Your State/Country], without regard to its conflict of law provisions.
+
+**8. Changes to These Terms**
+We may modify these Terms from time to time. We will notify you of any changes by posting the new Terms on this page. Your continued use of the Service after such changes constitutes your acceptance of the new Terms.
+
+**9. Contact Us**
+If you have any questions about these Terms, please contact us at occupancytracker@secure-scalable.solutions.";
+
         const string privacyPolicy = @"**Privacy Policy**
 
 **Effective Date:** 2025-Jan-01
