@@ -3,8 +3,36 @@ using Sqids;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
+
+using FluentValidation;
+
 namespace OccupancyTracker.Models
 {
+
+    public class OrganizationValidator : AbstractValidator<Organization>
+    {
+        public OrganizationValidator()
+        {
+            RuleFor(x => x.OrganizationName).NotEmpty().MaximumLength(256).WithMessage("Organization Name is required and must be less than 256 characters long.");
+            RuleFor(x => x.OrganizationDescription).MaximumLength(1024).WithMessage("Organization Description must be less than 1024 characters long.");
+            RuleFor(x => x.OrganizationAddress).SetValidator(new AddressValidator());
+            RuleFor(x => x.PhoneNumber).SetValidator(new PhoneNumberValidator());
+           
+        }
+        /// <summary>
+        /// Validate a single property of the model
+        /// </summary>
+        public Func<object, string, Task<IEnumerable<string>>> ValidateValue => async (model, propertyName) =>
+        {
+            var result = await ValidateAsync(ValidationContext<Organization>.CreateWithOptions((Organization)model, x => x.IncludeProperties(propertyName)));
+            if (result.IsValid)
+                return Array.Empty<string>();
+            return result.Errors.Select(e => e.ErrorMessage);
+        };
+    }
+
+
+
     /// <summary>
     /// The top level indicating a group of locations
     /// </summary>
@@ -29,7 +57,7 @@ namespace OccupancyTracker.Models
         /// Human readable organization name
         /// </summary>
         [StringLength(256)]
-        public string OrganizationName { get; set; }= string.Empty;
+        public string OrganizationName { get; set; } = string.Empty;
 
         /// <summary>
         /// Description of the organization
@@ -118,7 +146,6 @@ namespace OccupancyTracker.Models
                 this.PhoneNumber.FilterCriteria(filter);
         }
 
-        
+
     }
 }
-

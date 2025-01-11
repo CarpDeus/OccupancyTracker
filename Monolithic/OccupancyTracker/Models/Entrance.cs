@@ -1,7 +1,27 @@
 ﻿using System.Text.Json.Serialization;
+using FluentValidation;
 
 namespace OccupancyTracker.Models
 {
+    public class EntranceValidator : AbstractValidator<Entrance>
+    {
+        public EntranceValidator()
+        {
+            RuleFor(x => x.EntranceName).NotEmpty().MaximumLength(256).WithMessage("Entrance Name is required and must be less than 256 characters long.");
+            RuleFor(x => x.EntranceDescription).MaximumLength(1024).WithMessage("Entrance Description must be less than 1024 characters long.");
+        }
+        /// <summary>
+        /// Validate a single property of the model
+        /// </summary>
+        public Func<object, string, Task<IEnumerable<string>>> ValidateValue => async (model, propertyName) =>
+        {
+            var result = await ValidateAsync(ValidationContext<Entrance>.CreateWithOptions((Entrance)model, x => x.IncludeProperties(propertyName)));
+            if (result.IsValid)
+                return Array.Empty<string>();
+            return result.Errors.Select(e => e.ErrorMessage);
+        };
+    }
+
     /// <summary>
     /// Entrance is a point of entry to a location
     /// </summary>

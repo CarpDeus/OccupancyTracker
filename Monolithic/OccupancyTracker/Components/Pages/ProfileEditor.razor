@@ -4,7 +4,8 @@
 @using OccupancyTracker.Components.Admin.Components
 @using OccupancyTracker.Components.Pages.Components
 @using Microsoft.AspNetCore.WebUtilities
-
+@using System.ComponentModel.DataAnnotations
+@using FluentValidation
 @inject IAuthorizationService AuthorizationService
 @inject IOccAuthorizationService occAuthorizationService
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
@@ -14,58 +15,64 @@
 @inject IOrganizationUserService organizationUserService
 <PageTitle>Your Information</PageTitle>
 
-<MudForm @ref="form" Model="editedUser" @bind-ReadOnly="@readOnly">
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.FirstName" Label="First Name"  Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.LastName" Label="Last Name" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+<MudForm @ref="@form"  Model="@editedUser" @bind-ReadOnly="@readOnly" Validation="@(userInformationValidator.ValidateValue)" ValidationDelay="0">
+
+    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.FirstName" Required="true" RequiredError="First Name is required" Label="First Name"  Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.LastName" Required="true" RequiredError="Last Name is required" For="@(() => editedUser.LastName)" Label="Last Name" Variant="Variant.Filled" Immediate="true" @bind-ReadOnly="@readOnly"></MudTextField>
     <br />
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.AddressLine1" Required="true" RequiredError="Address Line 1 is required" Label="Address Line 1" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.City" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.State" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.Country" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.City" Label="City" Required="true" RequiredError="City is required" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.State" Label="State" Variant="Variant.Filled" Required="true" RequiredError="State is required" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" Required="true" RequiredError="Zip Code is required" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactAddress.Country" Label="Country" Variant="Variant.Filled" Required="true" RequiredError="Country is required" @bind-ReadOnly="@readOnly"></MudTextField>
     <br />
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-</MudForm>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" Required="true" RequiredError="Country Code is required" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField Margin="Margin.Dense" T="string" @bind-Value="editedUser.ContactPhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled"  Required="true" RequiredError="First Name is required"  @bind-ReadOnly="@readOnly"></MudTextField>
+    
 <MudGrid>
     <MudItem xs="3">
         <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
             @if (readOnly)
-            {
-                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Edit">Edit</MudButton>
-            }
-            else
-            {
-                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">Save</MudButton> 
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Edit">Edit</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" ButtonType="ButtonType.Submit"  OnClick="@(async() => await Save())">Save</MudButton>
 
-                <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@DiscardEdit">Discard Edit</MudButton>
-            }
-        </MudPaper>
-    </MudItem>
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="@DiscardEdit">Discard Edit</MudButton>
+                }
+            </MudPaper>
+        </MudItem>
+      
         <MudItem xs="3">
-        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
-            @if (canCreateOrganization)
-            {
-                <MudButton Variant="Variant.Filled" Color="Color.Success" Href="/orgs/new">Create an organzation</MudButton>
-            }
-            else
-            {
-                <MudLink Href="/orgs">View Your Organizations</MudLink>
-            }
-        </MudPaper>
-    </MudItem>
-            <MudItem xs="6">
-        <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
-            <MudForm>
-                 <div class="d-flex align-center justify-space-between">
-                <MudTextField Margin="Margin.Dense" T="string" @bind-Value="invitationCode" Label="Invitation code" Variant="Variant.Filled" /><MudButton Variant="Variant.Filled" @bind-Color="@buttonColor" StartIcon="@Icons.Material.Filled.Redeem" @bind-Enabled="@buttonsDisabled" OnClick="@RedeemInvite">Redeem Invitation</MudButton>
-                </div>
-            </MudForm>
-        </MudPaper>
-    </MudItem>
-</MudGrid>
+            <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
+                @if (canCreateOrganization )
+                {
+                    @if(userInformation.HasCompletedRegistration)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" Href="/orgs/new">Create an organzation</MudButton>
+                    }
+                }
+                else
+                {
+                    <MudLink Href="/orgs">View Your Organizations</MudLink>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6">
+            <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
+                <MudForm>
+                    <div class="d-flex align-center justify-space-between">
+                        <MudTextField Margin="Margin.Dense" T="string" @bind-Value="invitationCode" Label="Invitation code" Variant="Variant.Filled" /><MudButton Variant="Variant.Filled" @bind-Color="@buttonColor" StartIcon="@Icons.Material.Filled.Redeem" @bind-Enabled="@buttonsDisabled" OnClick="@RedeemInvite">Redeem Invitation</MudButton>
+                    </div>
+                </MudForm>
+            </MudPaper>
+        </MudItem>
 
+    </MudGrid>
+</MudForm>
 
 
 @code {
@@ -78,6 +85,7 @@
     [Parameter]
     public string sqid { get; set; }
 
+    private bool success;
     private MudForm form;
     private UserInformation editedUser = new UserInformation();
     private bool readOnly = true;
@@ -89,6 +97,8 @@
     private Color buttonColor = Color.Primary;
     private string invitationCode = "";
     private bool buttonsDisabled = false;
+
+    UserInformationValidator userInformationValidator = new();
 
 
     private void SetButtonState(bool UserCompletedRegistration)
@@ -113,7 +123,7 @@
     private async Task<Task> Save()
     {
         await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
-        Snackbar.Add("User Information Saved", Severity.Success);
+        Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
         readOnly = true;
         return Task.CompletedTask;
     }
@@ -129,7 +139,7 @@
         {
             if (userInformation.UserInformationSqid != sqid && !userInformation.IsSuperAdmin)
             {
-                Snackbar.Add("You are not authorized to edit this profile", Severity.Error);
+                Snackbar.Add("You are not authorized to edit this profile", MudBlazor.Severity.Error);
                 NavigationManager.NavigateTo("/profile/edit");
             }
             else
@@ -158,24 +168,32 @@
 
 
 
-
+    private async void Submit()
+    {
+        await form.Validate();
+        if (form.IsValid)
+        {
+            StateHasChanged();
+            await Save();
+        }
+    }
 
 
     private async Task<Task> RedeemInvite()
     {
         if (!userInformation.HasCompletedRegistration)
         {
-            Snackbar.Add("You must complete your profile before you can redeem an invitation", Severity.Error);
+            Snackbar.Add("You must complete your profile before you can redeem an invitation", MudBlazor.Severity.Error);
             return Task.CompletedTask; 
         }
         try{
             if(await organizationUserService.RedeemInvitationAsync(userInformation.UserInformationSqid, "", invitationCode))
-                Snackbar.Add("Invitation Redeemed", Severity.Success);
+                Snackbar.Add("Invitation Redeemed", MudBlazor.Severity.Success);
             this.StateHasChanged();
         }
         catch (Exception e)
         {
-            Snackbar.Add($"Error redeeming invitation\r\n{e.Message}", Severity.Error);
+            Snackbar.Add($"Error redeeming invitation\r\n{e.Message}", MudBlazor.Severity.Error);
         }
         return Task.CompletedTask;
     }

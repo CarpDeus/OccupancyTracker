@@ -12,7 +12,7 @@
         <MudText Typo="Typo.h4">@($"{organization.OrganizationName}")</MudText>
         <MudText Typo="Typo.h5">@($"{location.LocationName}")</MudText>
         <MudForm @ref="form" Model="entrance" OnValidSubmit="Save">
-            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="entrance.EntranceName" Label="Entrance Name" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="entrance.EntranceName" Label="Entrance Name" Required="true" Variant="Variant.Filled" ></MudTextField>
             <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="entrance.EntranceDescription" Label="Entrance Description" Variant="Variant.Filled" ></MudTextField>
             <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">@saveButtonText</MudButton>
         </MudForm>
@@ -66,32 +66,36 @@
 
     private async void Save()
     {
-        bool newEntrance = false;
-        if (entrance.EntranceId == 0)
+        await form.Validate();
+        if (form.IsValid)
         {
-            newEntrance = true;
-            entrance.CreatedBy = userInformation.UserInformationSqid;
-            entrance.CreatedDate = DateTime.Now;
-        }
-        else
-        {
-            entrance.ModifiedBy = userInformation.UserInformationSqid;
-            entrance.ModifiedDate = DateTime.Now;
-        }
-        if(entrance.OrganizationId==0)
-        {
-            entrance.OrganizationId =organization.OrganizationId;
-        }
-        await entranceService.SaveAsync(entrance, organization.OrganizationSqid, location.LocationSqid, userInformation);
-        entranceSqid = entrance.EntranceSqid;
-        Snackbar.Add("Entrance Saved", Severity.Success);
-        if(newEntrance)
-        {
-            await entranceCounterService.CreateEntranceCounterForEntranceAsync(userInformation.UserInformationSqid, entrance);
+            bool newEntrance = false;
+            if (entrance.EntranceId == 0)
+            {
+                newEntrance = true;
+                entrance.CreatedBy = userInformation.UserInformationSqid;
+                entrance.CreatedDate = DateTime.Now;
+            }
+            else
+            {
+                entrance.ModifiedBy = userInformation.UserInformationSqid;
+                entrance.ModifiedDate = DateTime.Now;
+            }
+            if (entrance.OrganizationId == 0)
+            {
+                entrance.OrganizationId = organization.OrganizationId;
+            }
+            await entranceService.SaveAsync(entrance, organization.OrganizationSqid, location.LocationSqid, userInformation);
+            entranceSqid = entrance.EntranceSqid;
             Snackbar.Add("Entrance Saved", Severity.Success);
-            entrance = await entranceService.GetAsync(organization.OrganizationSqid,location.LocationSqid, entrance.EntranceSqid,userInformation, true);
+            if (newEntrance)
+            {
+                await entranceCounterService.CreateEntranceCounterForEntranceAsync(userInformation.UserInformationSqid, entrance);
+                Snackbar.Add("Entrance Saved", Severity.Success);
+                entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, entrance.EntranceSqid, userInformation, true);
+            }
+            await OnRefresh.InvokeAsync();
+            MudDialog.Close(DialogResult.Ok(true));
         }
-        await OnRefresh.InvokeAsync();
-        MudDialog.Close(DialogResult.Ok(true));
     }
 }

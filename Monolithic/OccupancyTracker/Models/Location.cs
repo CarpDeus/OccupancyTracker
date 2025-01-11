@@ -2,9 +2,35 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
-
+using FluentValidation;
 namespace OccupancyTracker.Models
 {
+
+    public class LocationValidator : AbstractValidator<Location>
+    {
+        public LocationValidator()
+        {
+            RuleFor(x => x.LocationName).NotEmpty().MaximumLength(256).WithMessage("Location Name is required and must be less than 256 characters long.");
+            RuleFor(x => x.LocationDescription).MaximumLength(1024).WithMessage("Location Description must be less than 1024 characters long.");
+            RuleFor(x => x.MaxOccupancy).GreaterThan(0).WithMessage("Max Occupancy must be greater than 0");
+            RuleFor(x => x.OccupancyThresholdWarning).LessThan(x => x.MaxOccupancy).WithMessage("Threshold must be less than Max Occupancy");
+            RuleFor(x => x.LocationAddress).SetValidator(new AddressValidator());
+            RuleFor(x => x.PhoneNumber).SetValidator(new PhoneNumberValidator());
+            RuleFor(x => x.MaxOccupancy).GreaterThan(0).WithMessage("Max Occupancy must be greater than 0");
+            RuleFor(x => x.OccupancyThresholdWarning).LessThan(x => x.MaxOccupancy).WithMessage("Threshold must be less than Max Occupancy");
+        }
+        /// <summary>
+        /// Validate a single property of the model
+        /// </summary>
+        public Func<object, string, Task<IEnumerable<string>>> ValidateValue => async (model, propertyName) =>
+        {
+            var result = await ValidateAsync(ValidationContext<Location>.CreateWithOptions((Location)model, x => x.IncludeProperties(propertyName)));
+            if (result.IsValid)
+                return Array.Empty<string>();
+            return result.Errors.Select(e => e.ErrorMessage);
+        };
+    }
+
     /// <summary>
     /// Locations are the physical locations where occupancy is tracked
     /// </summary>

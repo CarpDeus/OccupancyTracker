@@ -3,19 +3,20 @@
 @inject MudBlazor.ISnackbar Snackbar
 @inject NavigationManager NavigatorService
 
-<MudForm @ref="form" Model="organization" @bind-ReadOnly="@readOnly">
-    <MudTextField ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" Label="Organization Name" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+
+<MudForm @ref="form" Model="organization" @bind-ReadOnly="@readOnly" Validation="@(validationRules.ValidateValue)" ValidationDelay="0">
+    <MudTextField ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" Label="Organization Name" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationDescription" Label="Organization Description" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Lines="numberDescriptionLines"></MudTextField>
     <hr />
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine1" Label="Address Line 1" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.City" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.State" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.Country" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.City" Required="true" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.State" Required="true" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.PostalCode" Required="true" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.Country" Required="true" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     <hr />
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.CountryCode" Required="true" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.Number" Required="true" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     @if (userCanEdit && readOnly)
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@CanEdit">Edit</MudButton>
@@ -37,6 +38,7 @@
     [Parameter] public bool userCanEdit { get; set; }
 
     private int numberDescriptionLines = 1;
+    private OrganizationValidator validationRules = new OrganizationValidator();
 
     private string[] ids;
 
@@ -55,7 +57,7 @@
         if ( changedOrg.CurrentStatus == args.Item3)
             NavigatorService.Refresh(true);
     }
-    
+
 
     protected override async Task OnInitializedAsync()
     {
@@ -82,32 +84,41 @@
 
     private async void Save()
     {
-        bool isNew = organization.OrganizationId == 0;
 
-        if (isNew)
+        await form.Validate();
+        if (form.IsValid)
         {
-            organization.CreatedBy = userInformation.UserInformationSqid;
-            organization.CreatedDate = DateTime.Now;
-        }
-        else
-        {
-            organization.ModifiedBy = userInformation.UserInformationSqid;
-            organization.ModifiedDate = DateTime.Now;
-        }
-        await organizationService.SaveAsync(organization, userInformation);
 
-        string snackMessage = isNew ? "Organization Created" : "Organization Updated";
-        Snackbar.Add(snackMessage, Severity.Success);
+            bool isNew = organization.OrganizationId == 0;
 
-        readOnly = true;
-        if (isNew)
-        {
-            NavigatorService.NavigateTo($"/orgs/{organization.OrganizationSqid}", true,true);
+            if (isNew)
+            {
+                organization.CreatedBy = userInformation.UserInformationSqid;
+                organization.CreatedDate = DateTime.Now;
+            }
+            else
+            {
+                organization.ModifiedBy = userInformation.UserInformationSqid;
+                organization.ModifiedDate = DateTime.Now;
+            }
+            await organizationService.SaveAsync(organization, userInformation);
+
+            string snackMessage = isNew ? "Organization Created" : "Organization Updated";
+            Snackbar.Add(snackMessage, Severity.Success);
+
+            readOnly = true;
+            if (isNew)
+            {
+                NavigatorService.NavigateTo($"/orgs/{organization.OrganizationSqid}", true, true);
+            }
+            else
+            {
+                numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
+                this.StateHasChanged();
+            }
         }
-        else
-        {
-            numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
-            this.StateHasChanged();
-        }
+        StateHasChanged();
+
+    }
     }
 }

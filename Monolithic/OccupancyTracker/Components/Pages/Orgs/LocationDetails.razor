@@ -118,8 +118,9 @@
         {x => x.entrance, entrance },
         {x => x.saveButtonText, editEntranceSqid=="new" ? "Add" : "Save"  }
         };
+        var options = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick = false };
 
-        var dialog = await DialogService.ShowAsync<EntranceForm>(editEntranceSqid == "new" ? "Create Entrance" : "Edit Entrance", parameters);
+        var dialog = await DialogService.ShowAsync<EntranceForm>(editEntranceSqid == "new" ? "Create Entrance" : "Edit Entrance", parameters, options);
         var result = await dialog.Result;
 
         if (!result.Canceled)
