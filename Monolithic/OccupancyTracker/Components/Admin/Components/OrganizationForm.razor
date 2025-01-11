@@ -28,7 +28,7 @@
     }
 </MudForm>
 <MudDivider />
-<OccupancyTracker.Components.Pages.Components.ChangeStatus HandleStatusChange="@((args) =>   InvokedChangeState(((string[], int,int))args))" Ids="ids" ShowUndelete="userInformation.IsSuperAdmin" CurrentStatus="organization.CurrentStatus" />
+@* <OccupancyTracker.Components.Pages.Components.ChangeStatus HandleStatusChange="@((args) =>   InvokedChangeState(((string[], int,int))args))" Ids="ids" ShowUndelete="userInformation.IsSuperAdmin" CurrentStatus="organization.CurrentStatus" /> *@
 
 @code {
 
@@ -119,6 +119,5 @@
         }
         StateHasChanged();
 
-    }
     }
 }
