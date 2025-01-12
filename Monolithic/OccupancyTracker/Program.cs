@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.ResponseCompression;
 using OccupancyTracker.Hubs;
 using System.Text.Json.Serialization;
 using MudBlazor;
+using System.Text.Json;
 
 namespace OccupancyTracker
 {
@@ -56,12 +57,11 @@ namespace OccupancyTracker
 
             //builder.Services.AddScoped<IProfileService, ProfileService>();
             builder.Services.AddSingleton<NavigatorService>();
-
-            List<SqidAlphabet> sqidAlphabets = builder.Configuration.GetSection("Occupancy:Sqids").Get<List<SqidAlphabet>>() ?? throw new InvalidOperationException("Sqids Configuration not found!");
-            if (sqidAlphabets.Count == 0)
-            {
-                throw new InvalidOperationException("Sqids Configuration not found!");
-            }
+                List<SqidAlphabet> sqidAlphabets = builder.Configuration.GetSection("Sqids").Get<List<SqidAlphabet>>();
+                if (sqidAlphabets.Count == 0)
+                {
+                    throw new InvalidOperationException("Sqids Alphabets not provided!");
+                }
             // Remove or comment out the direct SqidsEncoder registration
             // builder.Services.AddSingleton(new SqidsEncoder<long>(new() { ... }));
 

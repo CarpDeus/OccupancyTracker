@@ -6,7 +6,14 @@ using FluentValidation;
 namespace OccupancyTracker.Models
 {
 
-    public class LocationValidator : AbstractValidator<Location>
+    public class LocationOccupancyStats
+    {
+        public int MaxOccupancy { get; set; }
+        public int CurrentOccupancy { get; set; }
+        public int OccupancyThresholdWarning { get; set; }
+    }
+
+        public class LocationValidator : AbstractValidator<Location>
     {
         public LocationValidator()
         {

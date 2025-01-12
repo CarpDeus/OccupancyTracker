@@ -16,7 +16,7 @@ namespace OccupancyTracker.Service
 
         public SendGridClient CreateClient()
         {
-            return new SendGridClient(_configuration["Occupancy:SendGridKey"]);
+            return new SendGridClient(_configuration["SendGridKey"]);
         }
     }
 }

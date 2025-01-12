@@ -19,7 +19,6 @@
 
     <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @ref="tabs">
         <MudTabPanel Text="Location Details" ID="@("pn_Details")">
-
             <LocationForm organization="@organization" location="@location" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit"></LocationForm>
         </MudTabPanel>
         <MudTabPanel Text="Location Entrances" ID="@("pn_Entrances")">

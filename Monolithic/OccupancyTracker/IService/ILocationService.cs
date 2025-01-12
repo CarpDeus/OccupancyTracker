@@ -86,6 +86,19 @@ namespace OccupancyTracker.IService
         /// <returns>The updated organization</returns>
         /// <exception cref="InvalidOperationException">Any errors. Must be an organization admin to call and must be a Super Admin to change from PermanentlyDeleted</exception>
         Task<Location?> ChangeStatusAsync(string organizationSqid, string locationSqid, int fromStatus, int toStatus, UserInformation userInformation);
+
+
+        /// <summary>
+        /// Set the current occupancy value for a location
+        /// </summary>
+        /// <param name="organizationSqid"></param>
+        /// <param name="locationSqid"></param>
+        /// <param name="currentOccupancy"></param>
+        /// <param name="userInformation"></param>
+        /// <returns></returns>
+        Task<int> SetLocationCurrentOccupancy(string organizationSqid, string locationSqid, int currentOccupancy,UserInformation userInformation);
+
+        Task<LocationOccupancyStats> GetLocationOccupancyStats(string locationSqid);
     }
 }
 

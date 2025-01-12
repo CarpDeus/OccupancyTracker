@@ -37,11 +37,12 @@
 else
 {
     <MudContainer Style="overflow-y: scroll">
+        <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus LocationSqid="@locationSqid" EntranceCounterSqid="@entranceCounterSqid" small="false" />
         <MudGrid>
-            <MudItem xs="12">
+            @*   <MudItem xs="12">
                 <MudChip T="string" Typo="Typo.body1" Color="@currentOccupancyColor">Current Occupancy: @(currentOccupancy)</MudChip>
                 <MudChip T="string" Typo="Typo.body1" Color="Color.Info">Maximum Occupancy: @(maxOccupancy)</MudChip>
-            </MudItem>
+            </MudItem> *@
             <MudItem xs="12">
                 <MudText Typo="Typo.h4">Entering <MudIcon Icon="@Icons.Material.Filled.TrendingUp" /></MudText>
             </MudItem>
@@ -133,7 +134,7 @@ else
         if (entranceCounter != null)
         {
             timerNotFound = false;
-            locationSqid = entranceCounter.LocationSqid;
+         //   locationSqid = entranceCounter.LocationSqid;
             if (entranceCounter == null)
             {
                 Snackbar.Add("Entrance Counter not found", Severity.Error);
@@ -141,6 +142,8 @@ else
             }
             else
             {
+                locationSqid = entranceCounter.LocationSqid;
+
                 OrgName = entranceCounter.OrganizationName;
                 LocationName = entranceCounter.LocationName;
                 EntryName = entranceCounter.EntranceName;
@@ -170,7 +173,7 @@ else
         }
         else timerNotFound = true;
     }
-    
+
     private async void IncrementCounter(int count)
     {
         currentOccupancy = await entranceCounterService.UpdateCountAsync(entranceCounter.EntranceCounterSqid, count);
@@ -195,14 +198,15 @@ else
         {
             currentOccupancyColor = Color.Transparent;
         }
+         //StateHasChanged;
     }
 
-    private async void GetCount()
-    {
-        currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
-        IsThresholdExceeded();
+    // private async void GetCount()
+    // {
+    //     currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
+    //     IsThresholdExceeded();
 
-    }
+    // }
 
 
 }

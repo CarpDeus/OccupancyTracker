@@ -1,0 +1,143 @@
+﻿@implements IDisposable
+@using OccupancyTracker.DTO
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject OccupancyTracker.IService.IEntranceCounterService entranceCounterService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@using Microsoft.EntityFrameworkCore
+@using OccupancyTracker.Models
+@inject MudBlazor.ISnackbar Snackbar
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@using OccupancyTracker.DTO
+
+
+<MudContainer Style="overflow-y: scroll">
+    <MudGrid>
+        <MudItem xs="12">
+            <MudChip T="string" Typo="@typo" Size="@size"  Color="@currentOccupancyColor">@(currentOccupancyString)@(currentOccupancy)</MudChip>
+            <MudChip T="string" Typo="@typo" Size="@size" Color="Color.Info">@(maxOccupancyString)@(maxOccupancy)</MudChip>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+
+
+@code {
+    [Parameter]
+    public string LocationSqid { get; set; }
+    [Parameter]
+    public string EntranceCounterSqid { get; set; }
+    [Parameter]
+    public bool small { get; set; }
+
+    private Typo typo = Typo.body1;
+    private Size size = Size.Medium;
+
+    private string currentOccupancyString = "Current Occupancy: ";
+    private string maxOccupancyString = "Maximum Occupancy: ";
+    private int maxOccupancy = 0;
+    private int currentOccupancy = 0;
+    private int occupancyThresholdWarning = 0;
+    private Color currentOccupancyColor = Color.Success;
+    // SignalR
+    private HubConnection? hubConnection;
+
+    void  IDisposable.Dispose()
+    {
+        if (hubConnection != null)
+        {
+            hubConnection.SendAsync("LeaveLocationAsync", LocationSqid);
+            hubConnection.StopAsync();
+            hubConnection.DisposeAsync();
+        }
+    }
+
+    private async Task GetCurrentValues(string locationSqid, string entranceCounterSqid)
+    {
+        if (string.IsNullOrEmpty(locationSqid) && !string.IsNullOrEmpty(entranceCounterSqid))
+        {
+            var entranceCounter = await entranceCounterService.GetCounterForTrackerAsync(entranceCounterSqid);
+            if (entranceCounter != null)
+            {
+                LocationSqid = entranceCounter.LocationSqid;
+                maxOccupancy = entranceCounter.MaxOccupancy;
+                occupancyThresholdWarning = entranceCounter.OccupancyThresholdWarning;
+                currentOccupancy = entranceCounter.CurrentOccupancy;
+            }
+        }
+        if (!string.IsNullOrEmpty(locationSqid))
+        {
+            var locationStats = await locationService.GetLocationOccupancyStats(LocationSqid);
+            maxOccupancy = locationStats.MaxOccupancy;
+            occupancyThresholdWarning = locationStats.OccupancyThresholdWarning;
+            currentOccupancy = locationStats.CurrentOccupancy;
+        }
+    }
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetCurrentValues(LocationSqid, EntranceCounterSqid);
+        if(small)
+        {
+            typo = Typo.caption;
+            size = Size.Small;
+            currentOccupancyString = string.Empty;
+            maxOccupancyString = string.Empty;
+        }
+        if (!string.IsNullOrEmpty(LocationSqid))
+        {
+            hubConnection = new HubConnectionBuilder()
+                  .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
+                  .Build();
+            Hubs.OccupancyTrackerHub occupancyTrackerHub = new Hubs.OccupancyTrackerHub();
+
+            hubConnection.On<string, int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
+            {
+                currentOccupancy = rCurrentOccupancy;
+                occupancyThresholdWarning = rWarningOccupancy;
+                IsThresholdExceeded();
+                InvokeAsync(StateHasChanged);
+            });
+            await hubConnection.StartAsync();
+            await hubConnection.SendAsync("JoinLocationAsync", LocationSqid);
+            IsThresholdExceeded();
+        }
+
+    }    
+
+
+    private void IsThresholdExceeded()
+    {
+        if (currentOccupancy >= maxOccupancy)
+        {
+            currentOccupancyColor = Color.Error;
+        }
+        else if (currentOccupancy >= occupancyThresholdWarning)
+        {
+            currentOccupancyColor = Color.Warning;
+        }
+        else
+        {
+            currentOccupancyColor = Color.Transparent;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    public LocationOccupancyStats GetStats()
+    {
+        return new LocationOccupancyStats
+            {
+                CurrentOccupancy = currentOccupancy,
+                MaxOccupancy = maxOccupancy,
+                OccupancyThresholdWarning = occupancyThresholdWarning
+            };
+    }
+
+
+}

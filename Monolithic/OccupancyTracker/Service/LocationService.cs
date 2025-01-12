@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Client;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
+using Serilog;
+
 //using OccupancyTracker.Models.Migrations;
 using Sqids;
 using System.Collections.Generic;
@@ -241,5 +243,61 @@ namespace OccupancyTracker.Service
             }
             return true;
         }
+
+        /// <summary>
+        /// Set the current occupancy value for a location
+        /// </summary>
+        /// <param name="organizationSqid"></param>
+        /// <param name="locationSqid"></param>
+        /// <param name="currentOccupancy"></param>
+        /// <param name="userInformation"></param>
+        /// <returns></returns>
+        public async Task<int> SetLocationCurrentOccupancy(string organizationSqid, string locationSqid, int currentOccupancy, UserInformation userInformation)
+        {
+            if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
+            {
+                throw new Exception("Organization not found");
+            }
+            string userInformationSqid = userInformation.UserInformationSqid;
+            if (!(await _authorizationService.IsLocAdminAsync(userInformationSqid, organizationSqid, locationSqid)))
+            {
+                _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, "", "", $"User does not have rights to update location {locationSqid}", $"User does not have rights to update location {locationSqid}");
+            }
+            var loc = await GetAsync(organizationSqid, locationSqid, userInformation, true);
+            if (loc == null)
+            {
+                throw new KeyNotFoundException($"Location {locationSqid} was not found");
+            }
+            if (loc.CurrentStatus == 2 && !userInformation.IsSuperAdmin)
+            {
+                throw new KeyNotFoundException($"Location {locationSqid}  was not found");
+            }
+            loc.CurrentOccupancy = currentOccupancy;
+            await InternalSaveAsync(loc, organizationSqid, userInformation);
+            return loc.CurrentOccupancy;
+        }
+
+        public async Task<LocationOccupancyStats> GetLocationOccupancyStats(string locationSqid)
+        {
+            LocationOccupancyStats retVal = new LocationOccupancyStats();
+            using (var context = _contextFactory.CreateDbContext())
+            {
+                var loc = context.Locations.FirstOrDefault(e => e.LocationSqid == locationSqid);
+                if (loc != null)
+                {
+                    retVal.MaxOccupancy = loc.MaxOccupancy;
+                    retVal.CurrentOccupancy = loc.CurrentOccupancy;
+                    retVal.OccupancyThresholdWarning = loc.OccupancyThresholdWarning;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Location not found for sqid " + locationSqid);
+                }
+            }
+            return retVal;
+
+
+        }
+        
     }
 }

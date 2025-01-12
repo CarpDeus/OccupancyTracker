@@ -19,7 +19,7 @@ public class SqidsEncoderFactory : ISqidsEncoderFactory
     {
         const string cacheKey = "SqidsAlphabets";
         var sqidAlphabets = _memcachedClient.Get<List<SqidAlphabet>>(cacheKey)
-                            ?? _configuration.GetSection("Occupancy:Sqids").Get<List<SqidAlphabet>>();
+                            ?? _configuration.GetSection("Sqids").Get<List<SqidAlphabet>>();
 
         if (sqidAlphabets == null)
         {
