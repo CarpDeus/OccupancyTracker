@@ -1,6 +1,12 @@
 using SendGrid;
+/// <summary>
+/// Factory for creating SendGridClient
+/// </summary>
 public interface ISendGridFactory
 {
-  //  SqidsEncoder<long> CreateEncoder();
+    /// <summary>
+    /// Create a SendGridClient
+    /// </summary>
+    /// <returns>SendGridClient</returns>
     SendGridClient CreateClient();
 }

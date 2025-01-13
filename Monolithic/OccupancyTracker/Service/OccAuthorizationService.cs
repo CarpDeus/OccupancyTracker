@@ -14,12 +14,21 @@ using System.Security.Claims;
 
 namespace OccupancyTracker.Service
 {
+    /// <summary>
+    /// Service for handling authorization and user information.
+    /// </summary>
     public class OccAuthorizationService : IOccAuthorizationService
     {
         private readonly IDbContextFactory<OccupancyContext> _contextFactory;
         private readonly ISqidsEncoderFactory _sqids;
         private readonly IMemcachedClient _memcachedClient;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="OccAuthorizationService"/> class.
+        /// </summary>
+        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="sqidsEncoderFactory">The SQIDs encoder factory.</param>
+        /// <param name="memcachedClient">The memcached client.</param>
         public OccAuthorizationService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory sqidsEncoderFactory, IMemcachedClient memcachedClient)
         {
             _memcachedClient = memcachedClient;
@@ -27,6 +36,16 @@ namespace OccupancyTracker.Service
             _sqids = sqidsEncoderFactory;
         }
 
+        /// <summary>
+        /// Resolves the SSO asynchronously.
+        /// </summary>
+        /// <param name="auth0Identifier">The Auth0 identifier.</param>
+        /// <param name="givenName">The given name.</param>
+        /// <param name="surname">The surname.</param>
+        /// <param name="picture">The picture URL.</param>
+        /// <param name="emailAddress">The email address.</param>
+        /// <param name="isSuperAdmin">if set to <c>true</c> [is super admin].</param>
+        /// <returns>The user information.</returns>
         private async Task<UserInformation> ResolveSsoAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool isSuperAdmin)
         {
             using var _context = _contextFactory.CreateDbContext();
@@ -103,11 +122,23 @@ namespace OccupancyTracker.Service
             return userInformation;
         }
 
+        /// <summary>
+        /// Determines whether the user has completed their profile.
+        /// </summary>
+        /// <param name="userFields">The user fields.</param>
+        /// <returns>
+        ///   <c>true</c> if the user has completed their profile; otherwise, <c>false</c>.
+        /// </returns>
         private bool HasUserCompletedProfile(params string[] userFields)
         {
             return userFields.All(field => !string.IsNullOrEmpty(field));
         }
 
+        /// <summary>
+        /// Gets the user information asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <returns>The user information.</returns>
         public async Task<UserInformation> GetAsync(string userInformationSqid)
         {
             if (string.IsNullOrEmpty(userInformationSqid)) return new UserInformation();
@@ -123,6 +154,12 @@ namespace OccupancyTracker.Service
             return userInformation;
         }
 
+        /// <summary>
+        /// Saves the user information asynchronously.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="updateUserInformationSqid">The update user information SQID.</param>
+        /// <returns>The updated user information.</returns>
         public async Task<UserInformation> SaveUserAsync(UserInformation userInformation, string updateUserInformationSqid)
         {
             if (string.IsNullOrEmpty(userInformation.UserInformationSqid))
@@ -152,6 +189,13 @@ namespace OccupancyTracker.Service
             return userInformation;
         }
 
+        /// <summary>
+        /// Determines whether the user has completed registration.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>
+        ///   <c>true</c> if the user has completed registration; otherwise, <c>false</c>.
+        /// </returns>
         public bool HasCompletedRegistration(UserInformation userInformation)
         {
             return !string.IsNullOrEmpty(userInformation.FirstName) &&
@@ -165,6 +209,11 @@ namespace OccupancyTracker.Service
                    !string.IsNullOrEmpty(userInformation.ContactAddress.State);
         }
 
+        /// <summary>
+        /// Gets the user information from the authentication state asynchronously.
+        /// </summary>
+        /// <param name="state">The authentication state.</param>
+        /// <returns>The user information.</returns>
         public async Task<UserInformation?> GetFromStateAsync(AuthenticationState state)
         {
             var claims = state.User.Claims.ToList();
@@ -184,6 +233,13 @@ namespace OccupancyTracker.Service
             return await ResolveSsoAsync(nameIdentifier, givenName, surname, picture, emailAddress, isSuperAdmin);
         }
 
+
+        /// <summary>
+        /// Gets the user role information asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="forceCacheRefresh">if set to <c>true</c> [force cache refresh].</param>
+        /// <returns>The list of current user role information.</returns>
         private async Task<List<CurrentUserRoleInformation>> GetUserRoleInformationAsync(string userInformationSqid, bool forceCacheRefresh = false)
         {
             using var _context = _contextFactory.CreateDbContext();
@@ -198,6 +254,13 @@ namespace OccupancyTracker.Service
                 }).ToListAsync();
         }
 
+        /// <summary>
+        /// Gets the user roles filtered asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <returns>The list of current user role information.</returns>
         public async Task<List<CurrentUserRoleInformation>> GetUserRolesFilteredAsync(string userInformationSqid, string organizationSqid = "", string locationSqid = "")
         {
             var roles = await GetUserRoleInformationAsync(userInformationSqid);
@@ -223,12 +286,26 @@ namespace OccupancyTracker.Service
             return roles.Where(x => x.OrganizationSqid == locOrgSqid && x.OrganizationWide || x.LocationSqid == locationSqid).ToList();
         }
 
+        /// <summary>
+        /// Determines whether the user has access to the organization asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <returns>
+        ///   <c>true</c> if the user has access to the organization; otherwise, <c>false</c>.
+        /// </returns>
         public async Task<bool> HasAccessToOrganizationAsync(string userInformationSqid, string organizationSqid)
         {
             var user = await GetAsync(userInformationSqid);
             return user.IsSuperAdmin || (await GetUserRoleInformationAsync(userInformationSqid)).Any(x => x.OrganizationSqid == organizationSqid);
         }
 
+        /// <summary>
+        /// Gets the user location list asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="forceCacheRefresh">if set to <c>true</c> [force cache refresh].</param>
+        /// <returns>The list of user location SQIDs.</returns>
         private async Task<List<string>> GetUserLocationListAsync(string userInformationSqid, bool forceCacheRefresh = false)
         {
             using var _context = _contextFactory.CreateDbContext();
@@ -241,6 +318,14 @@ namespace OccupancyTracker.Service
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Determines whether the user has access to the location asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <returns>
+        ///   <c>true</c> if the user has access to the location; otherwise, <c>false</c>.
+        /// </returns>
         public async Task<bool> HasAccessToLocationAsync(string userInformationSqid, string locationSqid)
         {
             var pos = _sqids.DecodeSqids(null, locationSqid);
@@ -250,6 +335,13 @@ namespace OccupancyTracker.Service
                    (await GetUserLocationListAsync(userInformationSqid, true)).Any(x => x.Equals(locationSqid));
         }
 
+
+        /// <summary>
+        /// Gets the user information role for the organization asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="orgSqid">The organization SQID.</param>
+        /// <returns>The role name.</returns>
         public async Task<string> GetUserInformationRoleForOrganizationAsync(string userInformationSqid, string orgSqid)
         {
             var user = await GetAsync(userInformationSqid);
@@ -267,6 +359,15 @@ namespace OccupancyTracker.Service
             return AuthorizationRecords.Roles.User.Name;
         }
 
+
+        /// <summary>
+        /// Gets the user information role for the location asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="orgSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <param name="forceRefreshCache">if set to <c>true</c> [force refresh cache].</param>
+        /// <returns>The role name.</returns>
         public async Task<string> GetUserInformationRoleForLocationAsync(string userInformationSqid, string orgSqid, string locationSqid, bool forceRefreshCache = false)
         {
             var user = await GetAsync(userInformationSqid);
@@ -285,6 +386,17 @@ namespace OccupancyTracker.Service
             return AuthorizationRecords.Roles.User.Name;
         }
 
+        /// <summary>
+        /// Logs the access exception asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <param name="entranceSqid">The entrance SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="detailedMessage">The detailed message.</param>
+        /// <param name="userMessage">The user message.</param>
+        /// <returns>The reference ID of the logged access exception.</returns>
         public async Task<string> LogAccessExceptionAsync(string userInformationSqid, string organizationSqid, string locationSqid, string entranceSqid, string ipAddress, string detailedMessage, string userMessage)
         {
             var user = await GetAsync(userInformationSqid);
@@ -337,6 +449,14 @@ namespace OccupancyTracker.Service
             throw new System.Security.SecurityException($"{userMessage}{Environment.NewLine}ReferenceID: {invalidSecurityAttempt.InvalidSecurityAttemptSqid}");
         }
 
+        /// <summary>
+        /// Determines whether the user is a location admin asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid"></param>
+        /// <param name="orgSqid"></param>
+        /// <param name="locationSqid"></param>
+        /// <param name="forceCacheRefresh"></param>
+        /// <returns></returns>
         public async Task<bool> IsLocAdminAsync(string userInformationSqid, string orgSqid, string locationSqid, bool forceCacheRefresh = false)
         {
             var locRole = await GetUserInformationRoleForLocationAsync(userInformationSqid, orgSqid, locationSqid);
@@ -345,6 +465,13 @@ namespace OccupancyTracker.Service
                    locRole == AuthorizationRecords.Roles.LocationAdmin.Name;
         }
 
+        /// <summary>
+        /// Determines whether the user is an organization admin asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid"></param>
+        /// <param name="organizationSqid"></param>
+        /// <param name="forceCacheRefresh"></param>
+        /// <returns></returns>
         public async Task<bool> IsOrgAdminAsync(string userInformationSqid, string organizationSqid, bool forceCacheRefresh = false)
         {
             var orgRole = await GetUserInformationRoleForOrganizationAsync(userInformationSqid, organizationSqid);

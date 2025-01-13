@@ -4,16 +4,27 @@ using System.Timers;
 
 namespace OccupancyTracker.Service
 {
+    /// <summary>
+    /// Background service to process occupancy logs and generate summaries.
+    /// </summary>
     public class OccupancyLogProcessor : BackgroundService
     {
         private readonly IDbContextFactory<OccupancyContext> _contextFactory;
-        private PeriodicTimer _timer = new PeriodicTimer(new TimeSpan(0,0,30));
-        
+        private PeriodicTimer _timer = new PeriodicTimer(new TimeSpan(0, 0, 30));
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="OccupancyLogProcessor"/> class.
+        /// </summary>
+        /// <param name="contextFactory">The factory to create database context instances.</param>
         public OccupancyLogProcessor(IDbContextFactory<OccupancyContext> contextFactory)
         {
             _contextFactory = contextFactory;
         }
 
+        /// <summary>
+        /// Executes the background service to process occupancy logs.
+        /// </summary>
+        /// <param name="stoppingToken">Token to monitor for cancellation requests.</param>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (await _timer.WaitForNextTickAsync(stoppingToken)
@@ -69,10 +80,7 @@ namespace OccupancyTracker.Service
                     }
                 }
                 await context.SaveChangesAsync();
-                
             }
         }
-
-
     }
 }

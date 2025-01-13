@@ -98,6 +98,11 @@ namespace OccupancyTracker.IService
         /// <returns></returns>
         Task<int> SetLocationCurrentOccupancy(string organizationSqid, string locationSqid, int currentOccupancy,UserInformation userInformation);
 
+        /// <summary>
+        /// Get an object with Occupancy Stats for a location
+        /// </summary>
+        /// <param name="locationSqid"></param>
+        /// <returns>LocationOccupancyStats containing MaxOccupancy, CurrentOccupancy, and OccupancyThresholdWarning</returns>
         Task<LocationOccupancyStats> GetLocationOccupancyStats(string locationSqid);
     }
 }

@@ -108,10 +108,7 @@ namespace OccupancyTracker.Models
              Utility.FilterCriteria(this.EntranceDescription, filter) ;
         }
 
-        /// <summary>
-        /// LocationId the entrance is associated with
-        /// </summary>
-        ///public long LocationId { get; set; }
+  
 
     }
 }

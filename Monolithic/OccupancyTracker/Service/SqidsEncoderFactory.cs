@@ -4,17 +4,30 @@ using OccupancyTracker.Models;
 using Sqids;
 using System.Text.Json;
 
+/// <summary>
+/// Factory class for creating and managing Sqids encoders.
+/// </summary>
 public class SqidsEncoderFactory : ISqidsEncoderFactory
 {
     private readonly IConfiguration _configuration;
     private readonly IMemcachedClient _memcachedClient;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SqidsEncoderFactory"/> class.
+    /// </summary>
+    /// <param name="configuration">The configuration.</param>
+    /// <param name="memcachedClient">The memcached client.</param>
     public SqidsEncoderFactory(IConfiguration configuration, IMemcachedClient memcachedClient)
     {
         _configuration = configuration;
         _memcachedClient = memcachedClient;
     }
 
+    /// <summary>
+    /// Gets the Sqids alphabet based on the provided alphabet name.
+    /// </summary>
+    /// <param name="alphabetName">Name of the alphabet.</param>
+    /// <returns>The Sqids alphabet.</returns>
     private string GetSqidsAlphabet(string alphabetName)
     {
         const string cacheKey = "SqidsAlphabets";
@@ -32,6 +45,12 @@ public class SqidsEncoderFactory : ISqidsEncoderFactory
                ?? sqidAlphabets.First().Alphabet;
     }
 
+    /// <summary>
+    /// Creates a new Sqids encoder.
+    /// </summary>
+    /// <param name="alphabetName">Name of the alphabet.</param>
+    /// <param name="minLength">The minimum length of the encoded string.</param>
+    /// <returns>A new Sqids encoder.</returns>
     private SqidsEncoder<long> CreateEncoder(string alphabetName, int minLength)
     {
         return new SqidsEncoder<long>(new()
@@ -41,42 +60,49 @@ public class SqidsEncoderFactory : ISqidsEncoderFactory
         });
     }
 
+    /// <inheritdoc/>
     public string EncodeOrganizationId(long organizationId)
     {
         var encoder = CreateEncoder("Default", 6);
         return encoder.Encode(organizationId);
     }
 
+    /// <inheritdoc/>
     public string EncodeLocationId(long organizationId, long locationId)
     {
         var encoder = CreateEncoder("Default", 6);
         return encoder.Encode(new[] { organizationId, locationId });
     }
 
+    /// <inheritdoc/>
     public string EncodeEntranceId(long organizationId, long locationId, long entranceId)
     {
         var encoder = CreateEncoder("Default", 6);
         return encoder.Encode(new[] { organizationId, locationId, entranceId });
     }
 
+    /// <inheritdoc/>
     public string EncodeEntranceCounterId(long organizationId, long locationId, long entranceId, long entranceCounterId)
     {
         var encoder = CreateEncoder("Default", 6);
         return encoder.Encode(new[] { organizationId, locationId, entranceId, entranceCounterId });
     }
 
+    /// <inheritdoc/>
     public string EncodeUserInformation(long userInformationId)
     {
         var encoder = CreateEncoder("UserInformation", 6);
         return encoder.Encode(userInformationId);
     }
 
+    /// <inheritdoc/>
     public string EncodeInvalidSecurityAttempt(long invalidSecurityAttemptId)
     {
         var encoder = CreateEncoder("UserInformation", 6);
         return encoder.Encode(invalidSecurityAttemptId);
     }
 
+    /// <inheritdoc/>
     public ParsedOrganizationSqids DecodeSqids(string? organizationSqid = null, string? locationSqid = null, string? entranceSqid = null, string? entranceCounterSqid = null)
     {
         var encoder = CreateEncoder("Default", 6);
@@ -133,12 +159,14 @@ public class SqidsEncoderFactory : ISqidsEncoderFactory
         return parsedSqids;
     }
 
+    /// <inheritdoc/>
     public string EncodeInvitationId(long organizationId, long invitationId)
     {
         var encoder = CreateEncoder("Default", 6);
         return encoder.Encode(new[] { organizationId, invitationId });
     }
 
+    /// <inheritdoc/>
     public long DecodeUserInformation(string userInformationSqid)
     {
         var encoder = CreateEncoder("UserInformation", 6);

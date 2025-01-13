@@ -16,6 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="DTO\EntranceDto.cs" />
+    <Compile Remove="DTO\InvitationRedemptionDto.cs" />
     <Compile Remove="IService\IProfileService.cs" />
     <Compile Remove="Service\ProfileService.cs" />
   </ItemGroup>
@@ -52,6 +54,7 @@
 
   
   <ItemGroup>
+    <Folder Include="Components\Admin\Components\" />
     <Folder Include="Components\Admin\Pages\" />
     <Folder Include="Documentation\" />
   </ItemGroup>

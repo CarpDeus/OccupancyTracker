@@ -11,6 +11,9 @@ using System.Text.Json;
 
 namespace OccupancyTracker.Service
 {
+    /// <summary>
+    /// Service for managing organization users.
+    /// </summary>
     public class OrganizationUserService : IOrganizationUserService
     {
         private readonly IConfiguration _configuration;
@@ -19,6 +22,14 @@ namespace OccupancyTracker.Service
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="OrganizationUserService"/> class.
+        /// </summary>
+        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="organizationSqidsEncoderFactory">The organization SQIDs encoder factory.</param>
+        /// <param name="memcachedClient">The memcached client.</param>
+        /// <param name="authorizationService">The authorization service.</param>
+        /// <param name="configuration">The configuration.</param>
         public OrganizationUserService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient,
             IOccAuthorizationService authorizationService, IConfiguration configuration)
         {
@@ -29,6 +40,14 @@ namespace OccupancyTracker.Service
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// Gets the user list for an organization asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="forceCacheRefresh">if set to <c>true</c> forces cache refresh.</param>
+        /// <returns>A list of organization users.</returns>
         public async Task<List<OrganizationUser>> GetUserListForOrganizationAsync(string userInformationSqid, string ipAddress, string organizationSqid, bool forceCacheRefresh = false)
         {
             if (!await _authorizationService.HasAccessToOrganizationAsync(userInformationSqid, organizationSqid))
@@ -39,8 +58,6 @@ namespace OccupancyTracker.Service
 
             string cacheKey = $"OrganizationUserList:{organizationSqid}";
             List<OrganizationUser> organizationUsers = null;
-
-            
 
             //if (forceCacheRefresh || organizationUsers == null)
             {
@@ -55,13 +72,19 @@ namespace OccupancyTracker.Service
                             .ToListAsync();
                     }
                 }
-
-              
             }
 
             return organizationUsers ?? new List<OrganizationUser>();
         }
 
+        /// <summary>
+        /// Invites a user to an organization asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="email">The email address.</param>
+        /// <returns><c>true</c> if the user was invited successfully; otherwise, <c>false</c>.</returns>
         public async Task<bool> InviteUserToOrganizationAsync(string userInformationSqid, string ipAddress, string organizationSqid, string email)
         {
             if (!await _authorizationService.IsOrgAdminAsync(userInformationSqid, organizationSqid))
@@ -122,6 +145,13 @@ namespace OccupancyTracker.Service
             }
         }
 
+        /// <summary>
+        /// Redeems an invitation code asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="invitationCode">The invitation code.</param>
+        /// <returns><c>true</c> if the invitation was redeemed successfully; otherwise, <c>false</c>.</returns>
         public async Task<bool> RedeemInvitationAsync(string userInformationSqid, string ipAddress, string invitationCode)
         {
             using (var context = _contextFactory.CreateDbContext())
@@ -181,6 +211,13 @@ namespace OccupancyTracker.Service
             }
         }
 
+        /// <summary>
+        /// Gets the list of invited users for an organization asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <returns>A list of organization invitation codes.</returns>
         public async Task<List<OrganizationInvitationCodes>> GetInvitedUserListAsync(string userInformationSqid, string ipAddress, string organizationSqid)
         {
             if (!await _authorizationService.IsOrgAdminAsync(userInformationSqid, organizationSqid))
@@ -203,6 +240,15 @@ namespace OccupancyTracker.Service
             }
         }
 
+        /// <summary>
+        /// Gets the roles of an organization user asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="organizationUser">The organization user.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="forceCacheRefresh">if set to <c>true</c> forces cache refresh.</param>
+        /// <returns>A list of organization user roles DTOs.</returns>
         public async Task<List<OrganizationUserRolesDto>> GetOrganizationUserRoles(string userInformationSqid, OrganizationUser organizationUser, string organizationSqid, string ipAddress, bool forceCacheRefresh = false)
         {
             if (!await _authorizationService.IsOrgAdminAsync(userInformationSqid, organizationSqid))
@@ -218,7 +264,7 @@ namespace OccupancyTracker.Service
                 {
                     return new List<OrganizationUserRolesDto>();
                 }
-                
+
                 var userRoles = await context.OrganizationUserRoles
                     .Where(x => x.OrganizationUserId == organizationUser.OrganizationUsersId)
                     .ToListAsync();
@@ -246,6 +292,14 @@ namespace OccupancyTracker.Service
             }
         }
 
+        /// <summary>
+        /// Gets the roles of an organization user asynchronously.
+        /// </summary>
+        /// <param name="userInformationSqid">The user information SQID.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="ipAddress">The IP address.</param>
+        /// <param name="forceCacheRefresh">if set to <c>true</c> forces cache refresh.</param>
+        /// <returns>A list of organization user roles DTOs.</returns>
         Task<List<OrganizationUserRolesDto>> IOrganizationUserService.GetOrganizationUserRoles(string userInformationSqid, string organizationSqid, string ipAddress, bool forceCacheRefresh)
         {
             throw new NotImplementedException();

@@ -24,7 +24,7 @@ namespace OccupancyTracker.Models
             RuleFor(x => x.LocationAddress).SetValidator(new AddressValidator());
             RuleFor(x => x.PhoneNumber).SetValidator(new PhoneNumberValidator());
             RuleFor(x => x.MaxOccupancy).GreaterThan(0).WithMessage("Max Occupancy must be greater than 0");
-            RuleFor(x => x.OccupancyThresholdWarning).LessThan(x => x.MaxOccupancy).WithMessage("Threshold must be less than Max Occupancy");
+            RuleFor(x => x.OccupancyThresholdWarning).LessThan(x => x.MaxOccupancy).WithMessage("Threshold must be less than Max Occupancy").GreaterThan(0).WithMessage("Threshold must be greater than 0");
         }
         /// <summary>
         /// Validate a single property of the model

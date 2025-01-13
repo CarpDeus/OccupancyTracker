@@ -3,11 +3,20 @@ using System.ComponentModel.DataAnnotations;
 
 namespace OccupancyTracker.DTO
 {
+    /// <summary>
+    /// Data Transfer Object for EntranceCounter
+    /// </summary>
     public class EntranceCounterDto
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EntranceCounterDto"/> class.
+        /// </summary>
+        public EntranceCounterDto() { }
 
-        public EntranceCounterDto(){}
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EntranceCounterDto"/> class with the specified entrance counter.
+        /// </summary>
+        /// <param name="entranceCounter">The entrance counter to initialize from.</param>
         public EntranceCounterDto(EntranceCounter entranceCounter)
         {
             EntranceCounterId = entranceCounter.EntranceCounterId;
@@ -17,10 +26,7 @@ namespace OccupancyTracker.DTO
             RequiresAuthentication = entranceCounter.RequiresAuthentication;
             EntranceCounterSqid = entranceCounter.EntranceCounterSqid;
             CurrentStatus = entranceCounter.CurrentStatus;
-            
         }
-
-
 
         /// <summary>
         /// Primary Key
@@ -65,7 +71,6 @@ namespace OccupancyTracker.DTO
         [StringLength(256)]
         public string OrganizationName { get; set; } = string.Empty;
 
-
         /// <summary>
         /// Human readable name of the location
         /// </summary>
@@ -77,7 +82,6 @@ namespace OccupancyTracker.DTO
         /// Maximum occupancy of the location
         /// </summary>
         [Required]
-
         public int MaxOccupancy { get; set; } = 1;
 
         /// <summary>
@@ -106,11 +110,11 @@ namespace OccupancyTracker.DTO
         /// Public facing location identifier
         /// </summary>
         public string? LocationSqid { get; set; }
+
         /// <summary>
         /// Publicly accessible sqid for the organization
         /// </summary>
         [StringLength(36)]
         public string? OrganizationSqid { get; set; }
-
     }
 }

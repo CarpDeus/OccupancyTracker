@@ -28,9 +28,19 @@ namespace OccupancyTracker.Service
             _sqids = sqidsEncoderFactory;
         }
 
+        /// <summary>
+        /// Changes the status of a location.
+        /// </summary>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <param name="fromStatus">The current status of the location.</param>
+        /// <param name="toStatus">The new status of the location.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>The updated location.</returns>
+        /// <exception cref="Exception">Thrown when the organization is not found or the user does not have rights to update the location.</exception>
         public async Task<Location?> ChangeStatusAsync(string organizationSqid, string locationSqid, int fromStatus, int toStatus, UserInformation userInformation)
         {
-            if(!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
+            if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
             {
                 throw new Exception("Organization not found");
             }
@@ -80,6 +90,14 @@ namespace OccupancyTracker.Service
             return await GetAsync(organizationSqid, locationSqid, userInformation, true);
         }
 
+        /// <summary>
+        /// Gets a list of active locations.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="filter">The filter to apply.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>A list of active locations.</returns>
         public async Task<List<Location>> GetActiveListAsync(UserInformation userInformation, string organizationSqid, string filter, bool forceCacheRefresh = false)
         {
             if (userInformation.IsSuperAdmin)
@@ -89,6 +107,15 @@ namespace OccupancyTracker.Service
             else return (await GetListAsync(userInformation, organizationSqid, filter, forceCacheRefresh)).Where(e => e.CurrentStatus == 0).ToList();
         }
 
+        /// <summary>
+        /// Gets a location by its SQID.
+        /// </summary>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>The location.</returns>
+        /// <exception cref="Exception">Thrown when the organization is not found or the location is not found.</exception>
         public async Task<Location?> GetAsync(string organizationSqid, string locationSqid, UserInformation userInformation, bool forceCacheRefresh = false)
         {
             if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
@@ -113,18 +140,34 @@ namespace OccupancyTracker.Service
             return loc;
         }
 
+        /// <summary>
+        /// Gets a list of deleted locations.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="filter">The filter to apply.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>A list of deleted locations.</returns>
         public async Task<List<Location>> GetDeletedListAsync(UserInformation userInformation, string organizationSqid, string filter, bool forceCacheRefresh = false)
         {
             if (userInformation.IsSuperAdmin)
             {
                 return (await GetFullListAsync(userInformation, organizationSqid, filter, forceCacheRefresh)).Where(e => e.CurrentStatus == 1).ToList();
             }
-            else return (await GetListAsync(userInformation, organizationSqid, filter, forceCacheRefresh)).Where(e => e.CurrentStatus == 1).ToList() ;
+            else return (await GetListAsync(userInformation, organizationSqid, filter, forceCacheRefresh)).Where(e => e.CurrentStatus == 1).ToList();
         }
 
+        /// <summary>
+        /// Gets a full list of locations.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="filter">The filter to apply.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>A full list of locations.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the location list is not found.</exception>
         public async Task<List<Location>> GetFullListAsync(UserInformation userInformation, string organizationSqid, string filter = "", bool forceCacheRefresh = false)
         {
-
             if (!userInformation.IsSuperAdmin) return new List<Location>();
             string cacheKey = $"LocList:{organizationSqid}:{userInformation.UserInformationSqid}";
             List<Location> retVal = new();// _memcachedClient.Get<List<Location>>(cacheKey);
@@ -143,11 +186,18 @@ namespace OccupancyTracker.Service
             return retVal.Where(x => x.FilterCriteria(filter)).ToList();
         }
 
-
-
+        /// <summary>
+        /// Gets a list of locations.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="filter">The filter to apply.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>A list of locations.</returns>
+        /// <exception cref="Exception">Thrown when the organization is not found or the location list is not found.</exception>
         public async Task<List<Location>> GetListAsync(UserInformation userInformation, string organizationSqid, string filter = "", bool forceCacheRefresh = false)
         {
-            if(!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
+            if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
             {
                 throw new Exception("Organization not found");
             }
@@ -159,7 +209,7 @@ namespace OccupancyTracker.Service
                 bool isOrgAdmin = await _authorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid);
                 retVal = _contextFactory.CreateDbContext().Locations
                 .Where(e => e.OrganizationId == (long)pos.OrganizationId)
-                .Where(e => e.CurrentStatus ==0 || (isOrgAdmin && e.CurrentStatus==1))
+                .Where(e => e.CurrentStatus == 0 || (isOrgAdmin && e.CurrentStatus == 1))
                 .ToList();
                 if (retVal != null)
                     await _memcachedClient.SetAsync(cacheKey, retVal, 15);
@@ -171,25 +221,42 @@ namespace OccupancyTracker.Service
             return retVal.Where(x => x.FilterCriteria(filter)).ToList();
         }
 
+        /// <summary>
+        /// Gets a list of permanently deleted locations.
+        /// </summary>
+        /// <param name="userInformation">The user information.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="filter">The filter to apply.</param>
+        /// <param name="forceCacheRefresh">Whether to force a cache refresh.</param>
+        /// <returns>A list of permanently deleted locations.</returns>
         public async Task<List<Location>> GetPermanentlyDeletedListAsync(UserInformation userInformation, string organizationSqid, string filter, bool forceCacheRefresh = false)
         {
             return (await GetFullListAsync(userInformation, organizationSqid, filter, forceCacheRefresh)).Where(x => x.CurrentStatus == 2).ToList();
         }
 
+        /// <summary>
+        /// Saves a location.
+        /// </summary>
+        /// <param name="location">The location to save.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>The saved location.</returns>
         public async Task<Location> SaveAsync(Location location, string organizationSqid, UserInformation userInformation)
         {
-            return await InternalSaveAsync(location,organizationSqid, userInformation);
+            return await InternalSaveAsync(location, organizationSqid, userInformation);
         }
 
-
         /// <summary>
-        /// InternalSaveAsync organization
+        /// Internally saves a location.
         /// </summary>
-        /// <param name="loc"></param>
-        /// <returns></returns>
-        private async Task<Location> InternalSaveAsync(Location loc,string organizationSqid,  UserInformation userInformation)
+        /// <param name="loc">The location to save.</param>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>The saved location.</returns>
+        /// <exception cref="Exception">Thrown when the organization is not found.</exception>
+        private async Task<Location> InternalSaveAsync(Location loc, string organizationSqid, UserInformation userInformation)
         {
-            if(!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
+            if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
             {
                 throw new Exception("Organization not found");
             }
@@ -221,7 +288,12 @@ namespace OccupancyTracker.Service
             return await GetAsync(organizationSqid, loc.LocationSqid, userInformation, true);
         }
 
-
+        /// <summary>
+        /// Checks if the organization is valid for the user.
+        /// </summary>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>True if the organization is valid for the user, otherwise false.</returns>
         private async Task<bool> OrganizationIsValidForUser(string organizationSqid, UserInformation userInformation)
         {
             int? orgCurrentStatus = null;
@@ -231,13 +303,13 @@ namespace OccupancyTracker.Service
                 if (org != null)
                 {
                     orgCurrentStatus = org.CurrentStatus;
-                }                
+                }
             }
             if (orgCurrentStatus == null)
             {
                 return false;
             }
-            if(orgCurrentStatus != 0 && !(userInformation.IsSuperAdmin || (await _authorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid))))
+            if (orgCurrentStatus != 0 && !(userInformation.IsSuperAdmin || (await _authorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid))))
             {
                 return false;
             }
@@ -245,13 +317,14 @@ namespace OccupancyTracker.Service
         }
 
         /// <summary>
-        /// Set the current occupancy value for a location
+        /// Sets the current occupancy value for a location.
         /// </summary>
-        /// <param name="organizationSqid"></param>
-        /// <param name="locationSqid"></param>
-        /// <param name="currentOccupancy"></param>
-        /// <param name="userInformation"></param>
-        /// <returns></returns>
+        /// <param name="organizationSqid">The organization SQID.</param>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <param name="currentOccupancy">The current occupancy value.</param>
+        /// <param name="userInformation">The user information.</param>
+        /// <returns>The updated current occupancy value.</returns>
+        /// <exception cref="Exception">Thrown when the organization is not found or the user does not have rights to update the location.</exception>
         public async Task<int> SetLocationCurrentOccupancy(string organizationSqid, string locationSqid, int currentOccupancy, UserInformation userInformation)
         {
             if (!(await OrganizationIsValidForUser(organizationSqid, userInformation)))
@@ -277,6 +350,12 @@ namespace OccupancyTracker.Service
             return loc.CurrentOccupancy;
         }
 
+        /// <summary>
+        /// Gets the occupancy stats for a location.
+        /// </summary>
+        /// <param name="locationSqid">The location SQID.</param>
+        /// <returns>The occupancy stats for the location.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the location is not found.</exception>
         public async Task<LocationOccupancyStats> GetLocationOccupancyStats(string locationSqid)
         {
             LocationOccupancyStats retVal = new LocationOccupancyStats();
@@ -295,9 +374,6 @@ namespace OccupancyTracker.Service
                 }
             }
             return retVal;
-
-
         }
-        
     }
 }
