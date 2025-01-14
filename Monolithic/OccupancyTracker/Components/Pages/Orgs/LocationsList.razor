@@ -27,7 +27,6 @@ Dense="true" Striped="true" Bordered="true" Hover="true" >
         <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true"/>
         <PropertyColumn Property="x =>(x.EntranceCount ==null ? 0 : x.EntranceCount)" Title="Number of Entrances" Sortable="true" />
         <PropertyColumn Property="x => x.MaxOccupancy" Title="Max Occupancy" Sortable="true" />
-        <PropertyColumn Property="x => x.CurrentOccupancy" Title="Current Occupancy" Sortable="true" />
 
 <TemplateColumn CellClass="d-flex justify-end" Title="Current State">
     <CellTemplate>

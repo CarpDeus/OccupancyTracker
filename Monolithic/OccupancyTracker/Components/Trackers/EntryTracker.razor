@@ -39,10 +39,6 @@ else
     <MudContainer Style="overflow-y: scroll">
         <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus LocationSqid="@locationSqid" EntranceCounterSqid="@entranceCounterSqid" small="false" />
         <MudGrid>
-            @*   <MudItem xs="12">
-                <MudChip T="string" Typo="Typo.body1" Color="@currentOccupancyColor">Current Occupancy: @(currentOccupancy)</MudChip>
-                <MudChip T="string" Typo="Typo.body1" Color="Color.Info">Maximum Occupancy: @(maxOccupancy)</MudChip>
-            </MudItem> *@
             <MudItem xs="12">
                 <MudText Typo="Typo.h4">Entering <MudIcon Icon="@Icons.Material.Filled.TrendingUp" /></MudText>
             </MudItem>

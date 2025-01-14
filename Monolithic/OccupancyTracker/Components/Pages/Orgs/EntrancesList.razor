@@ -52,7 +52,7 @@
                         @if (context.Item.CurrentStatus == 0)
                         {
                             string url = $"/trackers/{context.Item.EntranceCounterInstanceSqid}";
-                            <MudLink Href="@url" Target="new" Typo="Typo.subtitle2">Counter: @context.Item.EntranceCounterInstanceSqid</MudLink>
+                            <MudLink Href="@url" Target="@context.Item.EntranceCounterInstanceSqid" Typo="Typo.subtitle2">Counter: @context.Item.EntranceCounterInstanceSqid</MudLink>
                         }
                     </MudStack>
                 </CellTemplate>
