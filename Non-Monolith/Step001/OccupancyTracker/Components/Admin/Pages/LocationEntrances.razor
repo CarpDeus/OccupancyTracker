@@ -1,0 +1,172 @@
+﻿@page "/admin/{organizationSqid}/{locationSqid}/"
+@using OccupancyTracker.Components.Admin.Components
+@inject IOccAuthorizationService occAuthorizationService
+
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+<MudTable Items="@(GetEntrances().Result)" Dense="@dense" Hover="@hover" Filter="new Func<Entrance, bool>(FilterFunc)"
+          @bind-entity="entrance">
+    <ToolBarContent>
+        <MudText Typo="Typo.h5">@tableHeader </MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Rounded.Add" OnClick="@(()=>Edit(""))" />
+    </ToolBarContent>
+    <HeaderContent>
+        <MudTh>Entrance Name</MudTh>
+        <MudTh>Entrance Description</MudTh>
+        <MudTh>Current Status</MudTh>
+        <MudTh>Entrance Counter</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="EntranceName">@context.EntranceName</MudTd>
+            <MudTd DataLabel="EntranceDescription">@context.EntranceDescription</MudTd>
+            <MudTd DataLabel="CurrentStatusDescription">@context.CurrentStatusDescription</MudTd>
+            <MudTd DataLabel="EntranceCounterInstanceSqid">
+                <MudLink Href="@($"/trackers/{context.EntranceCounterInstanceSqid}")" Target="_new" Typo="Typo.body2">@($"/trackers/{context.EntranceCounterInstanceSqid}")</MudLink>
+            </MudTd>
+            <MudTd DataLabel="">
+                <MudFab @onclick="@(()=>Edit(@context.EntranceSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Edit" Size="Size.Small" />
+                @* <MudFab @onclick="@(()=>GoTo(@organizationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.List" Size="Size.Small" /> *@
+                @if (@context.CurrentStatusDescription == "Suspended")
+            {
+                <MudFab @onclick="@(()=>Activate(@context.EntranceSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+                <MudFab @onclick="@(()=>Delete(@context.EntranceSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
+            }
+            @if (@context.CurrentStatusDescription == "Active")
+            {
+                <MudFab @onclick="@(()=>Suspend(@context.EntranceSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Delete" Size="Size.Small" />
+            }
+            @* @if (@context.CurrentStatusDescription == "Deleted")
+            {
+            <MudFab @onclick="@(()=>Undelete(@context.LocationSqid))" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+            } *@
+        </MudTd>
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
+
+
+
+
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    [Parameter] public string organizationSqid { get; set; }
+    [Parameter] public string locationSqid { get; set; }
+
+    private bool dense = false;
+    private bool hover = true;
+    private string searchString = "";
+    private string tableHeader = "";
+    private Organization organization = new Organization();
+    private Location location = new Location();
+    private Entrance entrance = new Entrance();
+    private List<Entrance> entrances;
+    private string orgSqid = "";
+    private bool loading = true;
+    internal string userInformationSqid = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        var state = await AuthenticationStateTask;
+        userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        orgSqid = organizationSqid;
+        organization = await organizationService.GetAsync(organizationSqid,"");
+        
+        location = await locationService.GetAsync(organizationSqid, locationSqid, userInformationSqid);
+        tableHeader = $"{organization.OrganizationName} - {location.LocationName}";
+    }
+    private async Task<List<Entrance>> GetEntrances()
+    {  
+        if (!string.IsNullOrEmpty(locationSqid))
+        entrances = await entranceService.GetEntranceListAsync(userInformation.UserInformationSqid, locationSqid);
+        return entrances;
+    }
+
+    private bool FilterFunc(Entrance searchEntity)
+    {
+        if (string.IsNullOrEmpty(searchString)) return true;
+        if (searchEntity.EntranceName.Contains(searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntity.EntranceDescription.Contains(searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+   
+    private async void Suspend(string entranceSqid)
+    {
+        try
+        {
+            await entranceService.SuspendAsync(userInformation.UserInformationSqid, entranceSqid);
+            Snackbar.Add("Entity Suspended", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Suspending Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Suspending Entity", Severity.Error);
+        }
+    }
+    private async void Delete(string entranceSqid)
+    {
+        try
+        {
+            await entranceService.DeleteAsync(userInformation.UserInformationSqid, entranceSqid);
+            Snackbar.Add("Entity Deleted", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Deleting Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Deleting Entity", Severity.Error);
+        }
+    }
+    private async void Activate(string entranceSqid)
+    {
+        try
+        {
+            await entranceService.ActivateAsync(userInformation.UserInformationSqid, entranceSqid);
+            Snackbar.Add("Entity Activated", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add($"Error Activating Entity {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error Activating Entity", Severity.Error);
+        }
+    }
+    private async Task Edit(string sqid)
+    {
+        DialogOptions dialogOptions = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick   = true};
+        var parameters = new DialogParameters<EntranceEditor>();
+        parameters.Add(x => x.organization, organization);
+        parameters.Add(x => x.location, location);
+        parameters.Add(x => x.userInformation, userInformation);
+        parameters.Add(x => x.entranceSqid, sqid);
+        var dialog = await DialogService.ShowAsync<EntranceEditor>("Entrance Editor", parameters, dialogOptions);
+        var result = await dialog.Result;
+        if (!result.Canceled)
+        {
+            GetEntrances();
+            this.StateHasChanged();
+        }
+        
+    }
+
+}

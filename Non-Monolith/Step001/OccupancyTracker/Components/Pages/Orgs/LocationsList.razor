@@ -1,0 +1,91 @@
+﻿@* @using OccupancyTracker.Components.Admin.Components *@
+@inject NavigationManager NavigatorService
+@inject OccupancyTracker.IService.ILocationService locationService
+
+<MudDataGrid T="Location" Items="@locations" SortMode="SortMode.Multiple" MultiSelection="false"
+FooterClass="d-none"
+Dense="true" Striped="true" Bordered="true" Hover="true" >
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Locations</MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+    </ToolBarContent>
+    <Columns>
+        <TemplateColumn CellClass="d-flex" Title="Open">
+            <CellTemplate>
+                <MudStack Row="true" Spacing="1">
+                    @{
+                        
+                        string url = $"/orgs/{orgSqid}/locations/{context.Item.LocationSqid}";
+                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
+                    }
+                </MudStack>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.LocationName" Title="Location Name" Sortable="true" />
+        <PropertyColumn Property="x => x.LocationDescription" Title="Description" Sortable="true" />
+        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true"/>
+        <PropertyColumn Property="x =>(x.EntranceCount ==null ? 0 : x.EntranceCount)" Title="Number of Entrances" Sortable="true" />
+        <PropertyColumn Property="x => x.MaxOccupancy" Title="Max Occupancy" Sortable="true" />
+
+<TemplateColumn CellClass="d-flex justify-end" Title="Current State">
+    <CellTemplate>
+        <MudStack Row="true">
+            @{
+
+                 string[] ids = new string[] { orgSqid,(string) context.Item.LocationSqid  };
+                 <OccupancyTracker.Components.Pages.Components.ChangeStatus HandleStatusChange="@((args) => InvokedChangeState(((string[], int,int))args))" 
+                 Ids="ids"
+                 ShowUndelete="userInformation.IsSuperAdmin" 
+                 CurrentStatus="context.Item.CurrentStatus" />
+            }
+        </MudStack>
+                <MudStack Row="true" >
+                    @{
+                        <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus LocationSqid="@context.Item.LocationSqid" small="true" />
+                    }
+                </MudStack>
+    </CellTemplate>
+</TemplateColumn>
+    </Columns>
+    <PagerContent >
+        <MudDataGridPager  T="Location"   />
+    </PagerContent>
+</MudDataGrid>
+
+@code {
+    [Parameter]
+    public EventCallback OnRefresh { get; set; }
+    [Parameter] public List<Location> locations { get; set; }
+    [Parameter] public string orgSqid { get; set; }
+    [Parameter] public UserInformation userInformation { get; set; }
+    private string _searchString = string.Empty;
+
+    
+
+    private void RowClicked(DataGridRowClickEventArgs<Location> args)
+    {
+        if (args != null && !string.IsNullOrEmpty(args.Item.LocationSqid))
+        {
+
+            NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/{args.Item.LocationSqid}");
+        }
+    }
+
+    private async Task InvokedChangeState((string[], int, int) args)
+    {
+        Location changedLoc = await locationService.ChangeStatusAsync(args.Item1[0], args.Item1[1], args.Item2, args.Item3, userInformation);
+        if (changedLoc.CurrentStatus == args.Item3)
+            NavigatorService.Refresh(true);
+    }
+
+
+    private bool FilterFunc(Entrance searchEntrance)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchEntrance.EntranceName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntrance.EntranceDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+}

@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <UserSecretsId>294466d7-9cfb-4b30-b0c6-3d3f642a12b1</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Components\Admin\Pages\**" />
+    <Content Remove="Components\Admin\Pages\**" />
+    <EmbeddedResource Remove="Components\Admin\Pages\**" />
+    <None Remove="Components\Admin\Pages\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="DTO\EntranceDto.cs" />
+    <Compile Remove="DTO\InvitationRedemptionDto.cs" />
+    <Compile Remove="IService\IProfileService.cs" />
+    <Compile Remove="Service\ProfileService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="Components\Admin\Components\LocationEditor.razor" />
+    <Content Remove="Components\Admin\Components\OrganizationEditor.razor" />
+    <Content Remove="Components\Pages\Orgs\OrgUserRights.razor" />
+  </ItemGroup>
+
+  
+  <ItemGroup>
+    <PackageReference Include="AaLogging" Version="1.0.0.2" />
+    <PackageReference Include="Auth0.AspNetCore.Authentication" Version="1.4.1" />
+    <PackageReference Include="EfCore.SchemaCompare" Version="8.1.0" />
+    <PackageReference Include="EnyimMemcachedCore" Version="3.2.4" />
+    <PackageReference Include="FluentValidation" Version="11.11.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.10">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MudBlazor" Version="6.*" />
+    <PackageReference Include="MudBlazor.Markdown" Version="1.0.2" />
+    <PackageReference Include="SendGrid" Version="9.29.3" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Sqids" Version="3.1.0" />
+  </ItemGroup>
+
+  
+  <ItemGroup>
+    <Folder Include="Components\Admin\Components\" />
+    <Folder Include="Components\Admin\Pages\" />
+    <Folder Include="Documentation\" />
+  </ItemGroup>
+
+  
+  <ItemGroup>
+    <None Include="Components\Admin\Misc.razor" />
+  </ItemGroup>
+
+  
+  <ItemGroup>
+    <ProjectReference Include="..\OccupancyTracker.Data\OccupancyTracker.Data.csproj" />
+  </ItemGroup>
+
+  
+  <ItemGroup>
+    <Content Update="Components\Pages\AcceptInvite.razor">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+  
+</Project>

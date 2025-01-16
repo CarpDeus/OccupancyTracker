@@ -1,0 +1,166 @@
+﻿@using Microsoft.EntityFrameworkCore
+@using OccupancyTracker.Models
+@inject OccupancyTracker.IService.IEntranceCounterService entranceCounterService
+@inject MudBlazor.ISnackbar Snackbar
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@using OccupancyTracker.DTO
+
+
+<MudContainer Style="overflow-y: scroll">
+    <MudDialog>
+        <TitleContent><MudText Typo="Typo.body2">@OrgName - @LocationName - @EntryName</MudText></TitleContent>
+        <DialogContent>
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudChip T="string" Typo="Typo.body1" Color="@currentOccupancyColor">Current Occupancy: @(currentOccupancy)</MudChip>
+                    <MudChip T="string" Typo="Typo.body1" Color="Color.Info">Maximum Occupancy: @(maxOccupancy)</MudChip>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.h4">Entering <MudIcon Icon="@Icons.Material.Filled.TrendingUp" /></MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(1))"><MudText Color="Color.Info" Typo="Typo.h4">1</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(2))"><MudText Color="Color.Info" Typo="Typo.h4">2</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(3))"><MudText Color="Color.Info" Typo="Typo.h4">3</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(4))"><MudText Color="Color.Info" Typo="Typo.h4">4</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(5))"><MudText Color="Color.Info" Typo="Typo.h4">5</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(6))"><MudText Color="Color.Info" Typo="Typo.h4">6</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(7))"><MudText Color="Color.Info" Typo="Typo.h4">7</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(8))"><MudText Color="Color.Info" Typo="Typo.h4">8</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(9))"><MudText Color="Color.Info" Typo="Typo.h4">9</MudText></MudButton>
+                    <MudButton Disabled="@entryButtonsDisabled" Variant="Variant.Filled" Color="Color.Dark" OnClick="@(() => IncrementCounter(10))"><MudText Color="Color.Info" Typo="Typo.h4">10</MudText></MudButton>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.h4">Leaving <MudIcon Icon="@Icons.Material.Filled.TrendingDown" /></MudText>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-1))"><MudText Color="Color.Info" Typo="Typo.h4">1</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-2))"><MudText Color="Color.Info" Typo="Typo.h4">2</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-3))"><MudText Color="Color.Info" Typo="Typo.h4">3</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-4))"><MudText Color="Color.Info" Typo="Typo.h4">4</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-5))"><MudText Color="Color.Info" Typo="Typo.h4">5</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-6))"><MudText Color="Color.Info" Typo="Typo.h4">6</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-7))"><MudText Color="Color.Info" Typo="Typo.h4">7</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-8))"><MudText Color="Color.Info" Typo="Typo.h4">8</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-9))"><MudText Color="Color.Info" Typo="Typo.h4">9</MudText></MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(-10))"><MudText Color="Color.Info" Typo="Typo.h4">10</MudText></MudButton>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudForm @ref="form">
+                        <MudGrid>
+                            <MudItem xs="12">
+                                <MudNumericField  Label="Amount to change" @bind-Value="occupancyChange"  Min="0" Max="25" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => IncrementCounter(occupancyChange))">Entering</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"  OnClick="@(() => IncrementCounter(occupancyChange*-1))">Exiting</MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    </MudForm>
+                </MudItem>
+            </MudGrid>
+        </DialogContent>
+    </MudDialog>
+</MudContainer>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [Parameter] public EntranceCounterDto entranceCounter { get; set; } = new EntranceCounterDto();
+
+    [Parameter] public Organization organization { get; set; }
+    [Parameter] public Location location { get; set; }
+    [Parameter] public Entrance entrance { get; set; }
+    [Parameter] public string locationSqid { get; set; } = string.Empty;
+
+    private MudForm form;
+
+    private bool entryButtonsDisabled = false;
+    private string OrgName = string.Empty;
+    private string LocationName = string.Empty;
+    private string EntryName = string.Empty;
+    private int currentOccupancy = 0;
+    private int maxOccupancy = 0;
+    private int occupancyChange = 0;
+    private int OccupancyThresholdWarning = 0;
+    private Color currentOccupancyColor = Color.Success;
+    PeriodicTimer periodicTimer = new(TimeSpan.FromSeconds(5));
+
+    // SignalR
+    private HubConnection? hubConnection;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        OrgName = organization.OrganizationName;
+        LocationName = location.LocationName;
+        EntryName = entrance.EntranceName;
+        currentOccupancy = location.CurrentOccupancy;
+        maxOccupancy = location.MaxOccupancy;
+        OccupancyThresholdWarning = location.OccupancyThresholdWarning;
+        hubConnection = new HubConnectionBuilder()
+          .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
+          .Build();
+        Hubs.OccupancyTrackerHub chatHub = new Hubs.OccupancyTrackerHub();
+
+        hubConnection.On<string,int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
+        {
+            if (rlocationSqid == locationSqid)
+            {
+                currentOccupancy = rCurrentOccupancy;
+                OccupancyThresholdWarning = rWarningOccupancy;
+                IsThresholdExceeded();
+                InvokeAsync(StateHasChanged);
+            }
+        });
+        
+        await hubConnection.StartAsync();
+        IsThresholdExceeded();
+        //RunTimer();
+    }
+    private async void IncrementCounter(int count)
+    {
+        currentOccupancy= await entranceCounterService.UpdateCountAsync(entranceCounter.EntranceCounterSqid, count);
+        hubConnection.InvokeAsync("UpdateOccupancy", locationSqid, currentOccupancy, OccupancyThresholdWarning);
+        IsThresholdExceeded();
+    }
+
+    private void CloseDialog()
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void IsThresholdExceeded()
+    {
+        entryButtonsDisabled = false;
+        if(currentOccupancy >= maxOccupancy) {currentOccupancyColor = Color.Error;
+            entryButtonsDisabled = true;
+        }
+        else if (currentOccupancy >= OccupancyThresholdWarning)
+        {
+            currentOccupancyColor = Color.Warning;
+        }
+        else
+        {
+            currentOccupancyColor = Color.Transparent;
+        }
+    }
+
+    private async void GetCount()
+    {
+        currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
+        IsThresholdExceeded();
+
+    }
+    async void RunTimer()
+    {
+        while (await periodicTimer.WaitForNextTickAsync())
+        {
+            GetCount();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+ 
+
+}

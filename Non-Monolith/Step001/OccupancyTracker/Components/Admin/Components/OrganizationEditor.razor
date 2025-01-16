@@ -1,0 +1,82 @@
+﻿@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject MudBlazor.ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="form" Model="organization" OnValidSubmit="Save">
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" Label="Organization Name" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationDescription" Label="Organization Description" Variant="Variant.Filled" ></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.City" Label="City" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.State" Label="State" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.Country" Label="Country" Variant="Variant.Filled" ></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" ></MudTextField>
+            <MudButton  Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">Save</MudButton>
+            </MudForm>
+    </DialogContent>
+</MudDialog>
+
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    [Parameter] public string sqid { get; set; } 
+    [Parameter] public string createUserSqid { get; set; }
+
+    private Organization organization = new Organization();
+    private MudForm form;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        if(!string.IsNullOrEmpty(sqid))
+            organization = await organizationService.GetAsync(sqid, userInformation.UserInformationSqid);
+        else organization = new Organization();
+    }
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async void Save()
+    {
+        bool isNew = organization.OrganizationId == 0;
+        bool selfCreated = !string.IsNullOrEmpty(createUserSqid);
+        if (isNew)
+        {
+            if (selfCreated)
+            {
+                organization.CreatedBy = createUserSqid;
+            }
+            else
+            {
+                organization.CreatedBy = userInformation.UserInformationSqid;
+            }
+            organization.CreatedDate = DateTime.Now;
+        }
+        else
+        {
+            organization.ModifiedBy = userInformation.UserInformationSqid;
+            organization.ModifiedDate = DateTime.Now;
+        }
+         await organizationService.SaveAsync(organization, createUserSqid); 
+        
+        string snackMessage = isNew ? "Organization Created" : "Organization Updated";
+        Snackbar.Add(snackMessage, Severity.Success);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+}

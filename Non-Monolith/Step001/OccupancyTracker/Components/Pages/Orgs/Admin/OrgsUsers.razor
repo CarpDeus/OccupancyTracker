@@ -1,0 +1,23 @@
+﻿@page "/orgs/{orgSqid}/admin/users"
+
+@implements IDisposable
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+
+@inject MudBlazor.ISnackbar Snackbar
+
+@attribute [Authorize]
+
+<h3>OrgsUsers</h3>
+
+@code {
+
+
+
+
+    public void Dispose()
+    {
+        
+    }
+}

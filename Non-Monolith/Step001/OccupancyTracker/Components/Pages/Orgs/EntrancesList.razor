@@ -1,0 +1,189 @@
+﻿@inject IDialogService DialogService
+@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject NavigationManager NavigatorService
+@inject MudBlazor.ISnackbar Snackbar
+
+<MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EntranceNew" StartIcon="@Icons.Material.Filled.Add">Add Entrance</MudButton>
+<div hidden="@(!hideEntranceList)">
+    <MudText Typo="Typo.body2">No entrances have been added to this location</MudText>
+</div>
+<div hidden="@(hideEntranceList)">
+    <MudDataGrid T="Entrance" Items="@entrances" SortMode="SortMode.Multiple" MultiSelection="false"
+
+    FooterClass="d-none" 
+    Dense="true" Striped="true" Bordered="true" Hover="true" >
+        <ToolBarContent>
+            <MudText Typo="Typo.h4">Entrances</MudText>
+            <MudSpacer />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        </ToolBarContent>
+        <Columns>
+
+            <TemplateColumn CellClass="d-flex" Title="Current State">
+                <CellTemplate>
+                    <MudStack Row="true" Spacing="1">
+                        @{
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit Entrance" Size="Size.Small"
+                            OnClick="(() => Edit(context.Item.EntranceSqid))" />
+
+                            string[] ids = new string[] { organization.OrganizationSqid, location.LocationSqid, (string)context.Item.EntranceSqid };
+                            <OccupancyTracker.Components.Pages.Components.ChangeStatus 
+                            HandleStatusChange="@((args) => HandleChangeEntranceStatus.InvokeAsync(((string[], int,int))args))"
+                            Ids="ids"
+                            ShowUndelete="userInformation.IsSuperAdmin"
+                            CurrentStatus="context.Item.CurrentStatus" />
+                        }
+
+                    </MudStack>
+                </CellTemplate>
+            </TemplateColumn>
+            @* <SelectColumn T="Location" /> *@
+
+            <PropertyColumn Property="x => x.EntranceName" Title="Entrance Name" Sortable="true" />
+            <PropertyColumn Property="x => x.EntranceDescription" Title="Description" Sortable="true" />
+            @* <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true"/> *@
+
+
+            <TemplateColumn CellClass="d-flex ">
+                <HeaderTemplate>EntranceCounter</HeaderTemplate>
+                <CellTemplate>
+
+                    <MudStack Row="true" Spacing="1">
+                        @if (context.Item.CurrentStatus == 0)
+                        {
+                            string url = $"/trackers/{context.Item.EntranceCounterInstanceSqid}";
+                            <MudLink Href="@url" Target="@context.Item.EntranceCounterInstanceSqid" Typo="Typo.subtitle2">Counter: @context.Item.EntranceCounterInstanceSqid</MudLink>
+                        }
+                    </MudStack>
+                </CellTemplate>
+            </TemplateColumn>
+
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="Organization" />
+        </PagerContent>
+    </MudDataGrid>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback<(string[], int, int)> HandleChangeEntranceStatus { get; set; }
+    [Parameter] public EventCallback<(string, string)> HandleEditingEntrance { get; set; }
+    [CascadingParameter(Name="entranceList")] public List<Entrance> entrances { get; set; }
+    [Parameter] public Organization organization { get; set; }
+    [Parameter] public Location location { get; set; }
+    [Parameter] public UserInformation userInformation { get; set; }
+    [Parameter] public Func<bool>? ShouldReRender { get; set; }
+
+    private string _searchString = string.Empty;    
+
+
+    private bool hideEntranceList = false;
+
+    private async Task Edit(string entranceSqid)
+    {
+        await HandleEditingEntrance.InvokeAsync((entranceSqid, ""));
+    }
+
+
+    private async Task InvokedChangeState((string[], int, int) args)
+    {
+        await HandleChangeEntranceStatus.InvokeAsync(args);
+    }
+
+    // private async void EditEntrance(string? editEntranceSqid)
+    // {
+    //     Entrance entrance = new Entrance();
+    //     if (editEntranceSqid != "new")
+    //     {
+    //         entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, editEntranceSqid, userInformation);
+    //     }
+    //     if (entrance.LocationId != location.LocationId)
+    //     {
+    //         Snackbar.Add($"Entrance {editEntranceSqid} does not belong to Location", Severity.Error);
+    //     }
+    //     var parameters = new DialogParameters<EntranceForm> { { x => x.organization, organization},
+    //     { x => x.location, location},
+    //     { x => x.userInformation, userInformation} ,
+    //     { x => x.organization, organization},
+    //     { x => x.location, location},
+    //     { x => x.entranceSqid, editEntranceSqid },
+    //     {x => x.entrance, entrance },
+    //     {x => x.saveButtonText, editEntranceSqid=="new" ? "Add" : "Save"  }
+    //     };
+
+    //     var dialog = await DialogService.ShowAsync<EntranceForm>(editEntranceSqid == "new" ? "Create Entrance" : "Edit Entrance", parameters);
+    //     var result = await  dialog.Result;
+
+    //     if (!result.Canceled)
+    //     {   //NavigatorService.Refresh(true);
+    //         await OnRefresh.InvokeAsync();
+    //     }
+    // }
+    // private async Task InvokedChangeState((string[], int, int) args)
+    // {
+    //     Entrance changedEnt = await entranceService.ChangeStatusAsync(args.Item1[0], args.Item1[1], args.Item1[2], args.Item2, args.Item3, userInformation);
+    //     if (changedEnt.CurrentStatus == args.Item3)
+    //     {
+
+    //         await OnRefresh.InvokeAsync();
+    //         StateHasChanged();
+    //     }
+
+    // }
+
+
+    // private async Task<bool> GetEntrances(bool forceCacheRefresh = false)
+    // {
+    //     if (!string.IsNullOrEmpty(location.LocationSqid))
+    //     {
+    //         try
+    //         {
+    //             entrances = await entranceService.GetListAsync(userInformation, organization.OrganizationSqid, location.LocationSqid,"", forceCacheRefresh);
+    //         }
+    //         catch (System.Security.SecurityException se)
+    //         {
+    //             NavigatorService.NavigateTo("/NoAccess");
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             NavigatorService.NavigateTo("/Error");
+    //         }
+
+
+    //     }
+    //     if (entrances == null) entrances = new List<Entrance>();
+    //     hideEntranceList = entrances.Count == 0;
+    //     this.StateHasChanged();
+    //     return true;
+
+    // }
+
+    private bool FilterFunc(Entrance searchEntrance)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchEntrance.EntranceName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntrance.EntranceDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+
+    private async Task EntranceNew()
+    {
+        await Edit("new");
+        // DialogOptions dialogOptions = new DialogOptions() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true, DisableBackdropClick = false };
+
+        // var parameters = new DialogParameters<EntranceForm>();
+        // parameters.Add(x => x.userInformation, userInformation);
+        // parameters.Add(x => x.location, location);
+        // parameters.Add(x => x.organization, organization);
+        // parameters.Add(x => x.entranceSqid, "new");
+        // var dialog = await DialogService.ShowAsync<EntranceForm>("Edit Location", parameters, dialogOptions);
+        // var result = await dialog.Result;
+
+        // if (!result.Canceled)
+        // {
+            
+        // }
+    }
+}

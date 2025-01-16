@@ -1,0 +1,36 @@
+﻿<MudNavMenu>
+	<MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+	@*     <MudNavLink Href="counter" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Add">Counter</MudNavLink>
+	<MudNavLink Href="weather" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Weather</MudNavLink>
+	<MudNavLink Href="auth" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Auth Required</MudNavLink>
+	*@
+	<AuthorizeView>
+		<Authorized>
+			@*<MudNavGroup Title="Your Information" Expanded="false">
+			<MudNavLink Href="Account/Manage" Match="NavLinkMatch.Prefix"  Icon="@Icons.Material.Filled.List">@context.User.Identity?.Name</MudNavLink>*@
+			<MudNavLink Href="/profile/edit" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">Your Information</MudNavLink>
+			@*</MudNavGroup>*@
+			<MudNavLink Href="/orgs" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Business">Your Organizations</MudNavLink>
+		</Authorized>
+	</AuthorizeView>
+	<AuthorizeView Roles="SuperAdmin">
+		<Authorized>
+			<MudNavGroup Title="SuperAdmin" Expanded="false">
+			<MudNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Entity Management</MudNavLink>
+			<MudNavLink Href="/admin/misc" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Utilities</MudNavLink>
+			</MudNavGroup>
+		</Authorized>
+	</AuthorizeView>
+	<AuthorizeView>
+		<Authorized>
+			<MudNavLink Href="/account/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout">Logout</MudNavLink>
+		</Authorized>
+		<NotAuthorized>
+			@* <MudNavLink Href="Account/Register" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.List">Register</MudNavLink> *@
+			<MudNavLink Href="Account/Login" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Login">Login / Register</MudNavLink>
+		</NotAuthorized>
+	</AuthorizeView>
+	<MudNavLink Href="/privacy" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">Privacy Policy</MudNavLink>
+	<MudNavLink Href="/terms" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Person">Terms of Service</MudNavLink>
+    <MudLink Href="https://github.com/CarpDeus/OccupancyTracker/blob/main/Monolithic/OccupancyTracker/Documentation/HelpFile.md" Target="_new">Help</MudLink>
+</MudNavMenu>

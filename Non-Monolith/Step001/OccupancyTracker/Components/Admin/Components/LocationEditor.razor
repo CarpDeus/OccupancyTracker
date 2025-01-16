@@ -1,0 +1,96 @@
+﻿@inject IOccAuthorizationService occAuthorizationService
+@inject NavigationManager NavigatorService
+@inject OccupancyTracker.IService.ILocationService locationService
+@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject MudBlazor.ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="form" Model="location" OnValidSubmit="Save">
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" Label="Orginization Name" Variant="Variant.Filled"  ReadOnly="true"></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationDescription" Label="Orginization Description" Variant="Variant.Filled"  ReadOnly="true"></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationName" Label="Location Name" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationDescription" Label="Location Description" Variant="Variant.Filled" ></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.City" Label="City" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.State" Label="State" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.LocationAddress.Country" Label="Country" Variant="Variant.Filled" ></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.PhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="location.PhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" ></MudTextField>
+            <hr />
+            <MudTextField  Margin="Margin.Dense" T="int" @bind-Value="location.MaxOccupancy" Label="Max Occupancy" Variant="Variant.Filled"  ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="int" @bind-Value="location.OccupancyThresholdWarning" Label="Occupancy Threshold Warning" Variant="Variant.Filled" ></MudTextField>
+            <MudButton  Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">Save</MudButton>
+        </MudForm>
+    </DialogContent>
+</MudDialog>
+
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+
+    [Parameter ] public string organizationSqid { get; set; }
+    [Parameter] public string? locationSqid { get; set; } 
+
+    private Organization organization = new Organization();
+    private Location location = new Location();
+    private MudForm form;
+    internal string userInformationSqid = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        var state = await AuthenticationStateTask;
+        userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        if (!string.IsNullOrEmpty(organizationSqid))
+        {
+            organization = await organizationService.GetAsync(organizationSqid,"");
+        }
+        if (!string.IsNullOrEmpty(locationSqid))
+        {
+            location = await locationService.GetAsync(organizationSqid, locationSqid, userInformationSqid);
+            if (location.OrganizationId != organization.OrganizationId)
+            {
+                Snackbar.Add("Location does not belong to Entity", Severity.Error);
+                MudDialog.Close(DialogResult.Ok(false));
+            }
+        }
+        else location = new Location { OrganizationId = organization.OrganizationId};
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async void Save()
+    {
+        bool isNew = false;
+        if (location.LocationId == 0)
+        {
+            isNew = true;
+            location.CreatedBy = userInformation.UserInformationSqid;
+            location.CreatedDate = DateTime.Now;
+        }
+        else
+        {
+            location.ModifiedBy = userInformation.UserInformationSqid;
+            location.ModifiedDate = DateTime.Now;
+        }
+        location = await locationService.SaveAsync(location, userInformationSqid);
+        Snackbar.Add("Location Saved", Severity.Success);
+        
+        if (isNew)
+            NavigatorService.NavigateTo($"/orgs/{organization.OrganizationSqid}/locations/{location.LocationSqid}", true);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+}

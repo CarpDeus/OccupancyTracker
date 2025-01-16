@@ -1,0 +1,73 @@
+﻿@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+@inject ProtectedSessionStorage ProtectedSessionStore
+
+@inject IOccAuthorizationService occAuthorizationService
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IAuthorizationService AuthorizationService
+@inject MudBlazor.ISnackbar Snackbar
+@using Microsoft.AspNetCore.Components.Authorization
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.caption">@userInformation.UserInformationSqid</MudText>
+        <MudForm @ref="form" Model="userInformation">
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.FirstName" Label="First Name" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.LastName" Label="Last Name" Variant="Variant.Filled" ></MudTextField>
+            <br />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.AddressLine1" Label="Address Line 1" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.City" Label="City" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.State" Label="State" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.PostalCode" Label="Zip Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactAddress.Country" Label="Country" Variant="Variant.Filled" ></MudTextField>
+            <br />
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactPhoneNumber.CountryCode" Label="Country Code" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="userInformation.ContactPhoneNumber.Number" Label="Phone Number" Variant="Variant.Filled" ></MudTextField>
+            <br />
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">@saveButtonText</MudButton>
+        </MudForm>
+
+
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [Parameter] public string userInformationSqid { get; set; }
+    [Parameter] public string updateUserInformationSqid { get; set; }
+
+    private UserInformation userInformation = new UserInformation();
+    private string errorMessage = "";
+    private MudForm form;
+    private string saveButtonText = "SaveAsync";
+    private string loggedInUser = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        userInformation = await occAuthorizationService.GetAsync(userInformationSqid);
+
+         await base.OnInitializedAsync();
+     }
+    protected override void OnAfterRender(bool firstRender)
+    {
+
+    }
+
+ 
+
+    private async void Save()
+    {
+       
+        userInformation= await  occAuthorizationService.SaveUserAsync(userInformation, updateUserInformationSqid);
+        Snackbar.Add("User Information Saved", Severity.Success);
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+
+}

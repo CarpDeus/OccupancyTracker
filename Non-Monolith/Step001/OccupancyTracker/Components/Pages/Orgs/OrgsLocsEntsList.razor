@@ -1,0 +1,104 @@
+﻿@page "/orgs/{orgSqid}/locations/{locationSqid}/entrances"
+
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOrganizationService organizationService
+@inject ILocationService locationService
+@inject IEntranceService entranceService
+@inject MudBlazor.ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IOccAuthorizationService occAuthorizationService
+@inject NavigationManager NavigatorService
+
+@attribute [Authorize]
+<PageTitle>@pageTitle</PageTitle>
+<MudText Typo="Typo.h6">@pageTitle</MudText>
+<MudDataGrid T="Entrance" Items="@entrances" SortMode="SortMode.Multiple" MultiSelection="false"
+             RowClick="@RowClicked"
+             Dense="true" Striped="true" Bordered="true" Hover="true" QuickFilter="@FilterFunc">
+    <ToolBarContent>
+        <MudText Typo="Typo.h4">Locations</MudText>
+        <MudSpacer />
+        <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+    </ToolBarContent>
+    <Columns>
+        <SelectColumn T="Location" />
+        <PropertyColumn Property="x => x.EntranceName" Title="Location Name" Sortable="true" />
+        <PropertyColumn Property="x => x.EntranceDescription" Title="Description" Sortable="true" />
+        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true"/>
+        <PropertyColumn Property="x => x.EntranceCounterInstanceSqid" Title="EntranceCounter" Sortable="true" />
+    </Columns>
+    <PagerContent>
+        <MudDataGridPager T="Organization" />
+    </PagerContent>
+</MudDataGrid>
+<MudDivider />
+<MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="LocationsNew">Add Location</MudButton>
+
+
+@code {
+    [CascadingParameter]
+    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+    [CascadingParameter]
+    public UserInformation? userInformation { get; set; }
+    [Parameter] public string orgSqid { get; set; }
+    [Parameter] public string locationSqid { get; set; }
+
+    private bool dense = false;
+    private bool hover = true;
+    private string _searchString = "";
+    private string pageTitle = string.Empty;
+    internal string userInformationSqid = "";
+    private Organization organization = new Organization();
+    private Location location;
+    private List<Entrance> entrances;
+
+
+    private void RowClicked(DataGridRowClickEventArgs<Entrance> args)
+    {
+        if(args!= null && ! string.IsNullOrEmpty(args.Item.EntranceSqid))
+        {
+
+            NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/{locationSqid}/entrances/{args.Item.EntranceSqid}");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userInformation == null)
+        {
+            var state = await AuthenticationStateTask;
+            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        }
+        try
+        {
+        organization =await organizationService.GetAsync(orgSqid, userInformation);
+        location = await locationService.GetAsync(organization.OrganizationSqid, locationSqid, userInformation);
+        if (!string.IsNullOrEmpty(locationSqid))
+                entrances = await entranceService.GetListAsync(userInformation,organization.OrganizationSqid, location.LocationSqid);
+        pageTitle = $"Entrances for {organization.OrganizationName} - {location.LocationName}";
+        
+        }
+        catch (System.Security.SecurityException se)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
+        }
+        catch (Exception ex)
+        {
+            NavigatorService.NavigateTo("/Error");
+        }
+    }
+
+    private void LocationsNew()
+    {
+        NavigatorService.NavigateTo($"/orgs/{orgSqid}/locations/new");
+    }
+
+    private bool FilterFunc(Entrance searchEntrance)
+    {
+        if (string.IsNullOrEmpty(_searchString)) return true;
+        if (searchEntrance.EntranceName.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (searchEntrance.EntranceDescription.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+}

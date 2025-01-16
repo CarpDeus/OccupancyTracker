@@ -1,0 +1,101 @@
+﻿
+@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@inject IOccAuthorizationService occAuthorizationService
+@inject ILocationService locationService
+@inject IOrganizationService organizationService
+@inject IEntranceService entranceService
+@inject IEntranceCounterService entranceCounterService
+@inject MudBlazor.ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h4">@($"{organization.OrganizationName}")</MudText>
+        <MudText Typo="Typo.h5">@($"{location.LocationName}")</MudText>
+        <MudForm @ref="form" Model="entrance" OnValidSubmit="Save">
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="entrance.EntranceName" Label="Entrance Name" Required="true" Variant="Variant.Filled" ></MudTextField>
+            <MudTextField  Margin="Margin.Dense" T="string" @bind-Value="entrance.EntranceDescription" Label="Entrance Description" Variant="Variant.Filled" ></MudTextField>
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@Save">@saveButtonText</MudButton>
+        </MudForm>
+    </DialogContent>
+</MudDialog>
+
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [CascadingParameter] public Task<AuthenticationState> AuthenticationStateTask { get; set; }
+
+    [Parameter] public EventCallback OnRefresh { get; set; }
+
+    [Parameter] public Organization organization { get; set; }
+    [Parameter] public Location location { get; set; }
+    [Parameter] public string? entranceSqid { get; set; }
+    [Parameter] public UserInformation? userInformation { get; set; }
+    [Parameter] public  Entrance entrance { get; set; }
+    [Parameter] public string saveButtonText { get; set; }
+
+    private MudForm form;
+
+    internal string userInformationSqid = "";
+
+    // protected override async Task OnInitializedAsync()
+    // {
+
+    //     var state = await AuthenticationStateTask;
+    //     if (entranceSqid!= "new")
+    //     {
+    //         saveButtonText = "Save";
+    //         entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, entranceSqid, userInformation);
+
+    //         if (entrance.LocationId != location.LocationId)
+    //         {
+    //             Snackbar.Add("Entrance does not belong to Location", Severity.Error);
+    //             MudDialog.Close(DialogResult.Ok(false));
+    //         }
+    //     }
+    //     else
+    //     {
+    //         saveButtonText = "Add";
+    //         entrance = new Entrance { LocationId=location.LocationId, OrganizationId=location.OrganizationId };
+    //     }
+    // }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async void Save()
+    {
+        await form.Validate();
+        if (form.IsValid)
+        {
+            bool newEntrance = false;
+            if (entrance.EntranceId == 0)
+            {
+                newEntrance = true;
+                entrance.CreatedBy = userInformation.UserInformationSqid;
+                entrance.CreatedDate = DateTime.Now;
+            }
+            else
+            {
+                entrance.ModifiedBy = userInformation.UserInformationSqid;
+                entrance.ModifiedDate = DateTime.Now;
+            }
+            if (entrance.OrganizationId == 0)
+            {
+                entrance.OrganizationId = organization.OrganizationId;
+            }
+            await entranceService.SaveAsync(entrance, organization.OrganizationSqid, location.LocationSqid, userInformation);
+            entranceSqid = entrance.EntranceSqid;
+            Snackbar.Add("Entrance Saved", Severity.Success);
+            if (newEntrance)
+            {
+                await entranceCounterService.CreateEntranceCounterForEntranceAsync(userInformation.UserInformationSqid, entrance);
+                Snackbar.Add("Entrance Saved", Severity.Success);
+                entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, entrance.EntranceSqid, userInformation, true);
+            }
+            await OnRefresh.InvokeAsync();
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+    }
+}
