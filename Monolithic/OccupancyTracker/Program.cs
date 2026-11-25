@@ -1,6 +1,7 @@
 using Auth0.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 
@@ -9,7 +10,6 @@ using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 using Microsoft.AspNetCore.ResponseCompression;
-using OccupancyTracker.Hubs;
 using System.Text.Json.Serialization;
 using MudBlazor;
 using System.Text.Json;
@@ -30,16 +30,44 @@ namespace OccupancyTracker
             builder.Services.AddMudMarkdownServices();
 
             builder.Services.AddScoped<TokenProvider>();
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<IRequestAuthorizationService, RequestAuthorizationService>();
 
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddCascadingValue("userInformation", sp => new UserInformation());
 
+            var auth0Audience = builder.Configuration["Auth0:Audience"];
+            if (string.IsNullOrWhiteSpace(auth0Audience))
+                throw new InvalidOperationException("Auth0:Audience must be configured.");
             builder.Services.AddAuth0WebAppAuthentication(options =>
             {
                 options.Domain = builder.Configuration["Auth0:Domain"];
                 options.ClientId = builder.Configuration["Auth0:ClientId"];
+                options.ClientSecret = builder.Configuration["Auth0:ClientSecret"]
+                    ?? throw new InvalidOperationException("Auth0:ClientSecret must be configured.");
                 options.Scope = "openid profile email address phone";
+            }).WithAccessToken(options =>
+            {
+                options.Audience = auth0Audience;
             });
+            builder.Services.PostConfigure<OpenIdConnectOptions>(Auth0Constants.AuthenticationScheme, options =>
+            {
+                options.GetClaimsFromUserInfoEndpoint = true;
+                options.SaveTokens = true;
+                options.ClaimActions.MapUniqueJsonKey("email_verified", "email_verified");
+            });
+
+            var apiAddress = builder.Configuration["Api:BaseAddress"]
+                ?? throw new InvalidOperationException("Api:BaseAddress must be configured.");
+            if (!Uri.TryCreate(apiAddress, UriKind.Absolute, out var apiUri) ||
+                !string.IsNullOrEmpty(apiUri.UserInfo) || !string.IsNullOrEmpty(apiUri.Query) ||
+                !string.IsNullOrEmpty(apiUri.Fragment) ||
+                (apiUri.Scheme != Uri.UriSchemeHttps &&
+                 !(builder.Environment.IsDevelopment() && apiUri.IsLoopback && apiUri.Scheme == Uri.UriSchemeHttp)))
+                throw new InvalidOperationException("Api:BaseAddress must use HTTPS except for localhost in development.");
+            builder.Services.AddHttpClient<TrackerApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
             builder.Services.AddHostedService<OccupancyLogProcessor>();
             builder.Services.AddHostedService<OccupancyEmailProcessor>();
@@ -132,9 +160,14 @@ namespace OccupancyTracker
             app.UseAntiforgery();
             app.MapGet("/Account/Login", async (HttpContext httpContext, string returnUrl = "/") =>
             {
+                if (!LocalRedirect.IsSafe(returnUrl))
+                {
+                    httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    return;
+                }
                 var authenticationProperties = new LoginAuthenticationPropertiesBuilder()
-                        //.WithRedirectUri(returnUrl)
-                        .WithRedirectUri($"/sso-post-signon/?returnUrl={returnUrl}")
+                        .WithAudience(auth0Audience)
+                        .WithRedirectUri($"/sso-post-signon?returnUrl={Uri.EscapeDataString(returnUrl)}")
                         .Build();
                 await httpContext.ChallengeAsync(Auth0Constants.AuthenticationScheme, authenticationProperties);
             });
@@ -152,9 +185,6 @@ namespace OccupancyTracker
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
 
-            app.MapHub<OccupancyTrackerHub>("/UpdateOccupancy");
-            
-            
             app.Run();
         }
     }

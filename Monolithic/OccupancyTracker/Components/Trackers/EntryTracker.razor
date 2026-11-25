@@ -1,22 +1,12 @@
 ﻿@page "/trackers/{entranceCounterSqid}"
 @layout Layout.EmptyLayout
 
-@implements IDisposable
+@implements IAsyncDisposable
 @using OccupancyTracker.DTO
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject OccupancyTracker.IService.IOrganizationService organizationService
-@inject OccupancyTracker.IService.ILocationService locationService
-@inject OccupancyTracker.IService.IEntranceService entranceService
-@inject OccupancyTracker.IService.IEntranceCounterService entranceCounterService
+@using System.Net
+@inject TrackerApiClient TrackerApi
 @inject MudBlazor.ISnackbar Snackbar
-@inject IDialogService DialogService
-
-@using Microsoft.EntityFrameworkCore
-@using OccupancyTracker.Models
-@inject MudBlazor.ISnackbar Snackbar
-@using Microsoft.AspNetCore.SignalR.Client
 @inject NavigationManager Navigation
-@using OccupancyTracker.DTO
 
 <MudThemingProvider />
 <MudPopoverProvider />
@@ -37,7 +27,8 @@
 else
 {
     <MudContainer Style="overflow-y: scroll">
-        <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus LocationSqid="@locationSqid" EntranceCounterSqid="@entranceCounterSqid" small="false" />
+        <MudChip T="string" Color="@currentOccupancyColor">Current Occupancy: @currentOccupancy</MudChip>
+        <MudChip T="string" Color="Color.Info">Maximum Occupancy: @maxOccupancy</MudChip>
         <MudGrid>
             <MudItem xs="12">
                 <MudText Typo="Typo.h4">Entering <MudIcon Icon="@Icons.Material.Filled.TrendingUp" /></MudText>
@@ -92,91 +83,87 @@ else
     public string? entranceCounterSqid { get; set; }
 
     private EntranceCounterDto? entranceCounter;
-    private bool counterIsValid = true;
-    private string locationSqid = string.Empty;
-
-
-
-
     private MudForm form;
 
     private bool entryButtonsDisabled = false;
-    private string OrgName = string.Empty;
-    private string LocationName = string.Empty;
-    private string EntryName = string.Empty;
     private int currentOccupancy = 0;
     private int maxOccupancy = 0;
     private int occupancyChange = 0;
     private int OccupancyThresholdWarning = 0;
     private Color currentOccupancyColor = Color.Success;
-    PeriodicTimer periodicTimer = new(TimeSpan.FromSeconds(5));
     private bool timerNotFound = false;
-    // SignalR
-    private HubConnection? hubConnection;
+    private readonly CancellationTokenSource cancellation = new();
+    private Task? polling;
 
-    void  IDisposable.Dispose()
+    public async ValueTask DisposeAsync()
     {
-        if (hubConnection != null)
-        {
-            hubConnection.SendAsync("LeaveLocationAsync", locationSqid);
-            hubConnection.StopAsync();
-            hubConnection.DisposeAsync();
-        }
+        cancellation.Cancel();
+        if (polling != null) await polling;
+        cancellation.Dispose();
     }
 
     protected override async Task OnInitializedAsync()
     {
-        entranceCounter = await entranceCounterService.GetCounterForTrackerAsync(entranceCounterSqid);
-        if (entranceCounter != null)
+        try
         {
-            timerNotFound = false;
-         //   locationSqid = entranceCounter.LocationSqid;
-            if (entranceCounter == null)
-            {
-                Snackbar.Add("Entrance Counter not found", Severity.Error);
-                counterIsValid = false;
-            }
-            else
-            {
-                locationSqid = entranceCounter.LocationSqid;
-
-                OrgName = entranceCounter.OrganizationName;
-                LocationName = entranceCounter.LocationName;
-                EntryName = entranceCounter.EntranceName;
-                currentOccupancy = entranceCounter.CurrentOccupancy;
-                maxOccupancy = entranceCounter.MaxOccupancy;
-                OccupancyThresholdWarning = entranceCounter.OccupancyThresholdWarning;
-                hubConnection = new HubConnectionBuilder()
-                  .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
-                  .Build();
-                Hubs.OccupancyTrackerHub occupancyTrackerHub = new Hubs.OccupancyTrackerHub();
-
-                hubConnection.On<string, int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
-                {
-                    if (rlocationSqid == locationSqid)
-                    {
-                        currentOccupancy = rCurrentOccupancy;
-                        OccupancyThresholdWarning = rWarningOccupancy;
-                        IsThresholdExceeded();
-                        InvokeAsync(StateHasChanged);
-                    }
-                });
-                await hubConnection.StartAsync();
-                await hubConnection.SendAsync("JoinLocationAsync", locationSqid);
-
-                IsThresholdExceeded();
-            }
+            await RefreshAsync();
+            if (!timerNotFound) polling = PollAsync();
         }
-        else timerNotFound = true;
+        catch (HttpRequestException ex) { HandleApiError(ex); }
     }
 
-    private async void IncrementCounter(int count)
+    private async Task RefreshAsync()
     {
-        currentOccupancy = await entranceCounterService.UpdateCountAsync(entranceCounter.EntranceCounterSqid, count);
-        hubConnection.InvokeAsync("UpdateOccupancy", locationSqid, currentOccupancy, OccupancyThresholdWarning);
+        entranceCounter = await TrackerApi.GetAsync(entranceCounterSqid!, cancellation.Token);
+        timerNotFound = entranceCounter == null;
+        if (entranceCounter == null) return;
+        currentOccupancy = entranceCounter.CurrentOccupancy;
+        maxOccupancy = entranceCounter.MaxOccupancy;
+        OccupancyThresholdWarning = entranceCounter.OccupancyThresholdWarning;
         IsThresholdExceeded();
     }
 
+    private async Task IncrementCounter(int count)
+    {
+        try
+        {
+            entranceCounter = await TrackerApi.UpdateAsync(entranceCounterSqid!, count, cancellation.Token);
+            timerNotFound = entranceCounter == null;
+            if (entranceCounter == null) return;
+            currentOccupancy = entranceCounter.CurrentOccupancy;
+            IsThresholdExceeded();
+        }
+        catch (HttpRequestException ex) { HandleApiError(ex); }
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+                if (timerNotFound) break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException ex) { await InvokeAsync(() => HandleApiError(ex)); }
+    }
+
+    private void HandleApiError(HttpRequestException ex)
+    {
+        if (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var returnUrl = Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery);
+            Navigation.NavigateTo($"/Account/Login?returnUrl={returnUrl}", forceLoad: true);
+            return;
+        }
+        entryButtonsDisabled = true;
+        Snackbar.Add(ex.StatusCode == HttpStatusCode.Forbidden
+            ? "You do not have access to this tracker."
+            : "Unable to contact the tracker service.", Severity.Error);
+    }
 
     private void IsThresholdExceeded()
     {
@@ -194,15 +181,5 @@ else
         {
             currentOccupancyColor = Color.Transparent;
         }
-         //StateHasChanged;
     }
-
-    // private async void GetCount()
-    // {
-    //     currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
-    //     IsThresholdExceeded();
-
-    // }
-
-
 }

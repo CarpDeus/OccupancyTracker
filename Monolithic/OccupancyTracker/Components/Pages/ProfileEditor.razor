@@ -84,6 +84,8 @@
 
     [Parameter]
     public string sqid { get; set; }
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
 
     private bool success;
     private MudForm form;
@@ -125,9 +127,15 @@
         await form.Validate();
         if (form.IsValid)
         {
-            await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
+            var saved = await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
+            editedUser = saved;
+            if (saved.UserInformationSqid == userInformation.UserInformationSqid)
+                userInformation = saved;
+            SetButtonState(userInformation.HasCompletedRegistration);
             Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
             readOnly = true;
+            if (saved.HasCompletedRegistration && LocalRedirect.IsSafe(ReturnUrl))
+                NavManager.NavigateTo(ReturnUrl!);
         }
         StateHasChanged();
         return Task.CompletedTask;

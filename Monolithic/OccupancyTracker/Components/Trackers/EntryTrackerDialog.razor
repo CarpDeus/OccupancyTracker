@@ -1,8 +1,8 @@
-﻿@using Microsoft.EntityFrameworkCore
+﻿@implements IAsyncDisposable
+@using System.Net
 @using OccupancyTracker.Models
-@inject OccupancyTracker.IService.IEntranceCounterService entranceCounterService
+@inject TrackerApiClient TrackerApi
 @inject MudBlazor.ISnackbar Snackbar
-@using Microsoft.AspNetCore.SignalR.Client
 @inject NavigationManager Navigation
 @using OccupancyTracker.DTO
 
@@ -84,10 +84,10 @@
     private int occupancyChange = 0;
     private int OccupancyThresholdWarning = 0;
     private Color currentOccupancyColor = Color.Success;
-    PeriodicTimer periodicTimer = new(TimeSpan.FromSeconds(5));
 
-    // SignalR
-    private HubConnection? hubConnection;
+    private readonly CancellationTokenSource cancellation = new();
+    private Task? polling;
+    private bool counterNotFound;
 
 
     protected override async Task OnInitializedAsync()
@@ -98,31 +98,80 @@
         currentOccupancy = location.CurrentOccupancy;
         maxOccupancy = location.MaxOccupancy;
         OccupancyThresholdWarning = location.OccupancyThresholdWarning;
-        hubConnection = new HubConnectionBuilder()
-          .WithUrl(Navigation.ToAbsoluteUri("/UpdateOccupancy"))
-          .Build();
-        Hubs.OccupancyTrackerHub chatHub = new Hubs.OccupancyTrackerHub();
-
-        hubConnection.On<string,int, int>("UpdateOccupancy", (rlocationSqid, rCurrentOccupancy, rWarningOccupancy) =>
+        try
         {
-            if (rlocationSqid == locationSqid)
-            {
-                currentOccupancy = rCurrentOccupancy;
-                OccupancyThresholdWarning = rWarningOccupancy;
-                IsThresholdExceeded();
-                InvokeAsync(StateHasChanged);
-            }
-        });
-        
-        await hubConnection.StartAsync();
-        IsThresholdExceeded();
+            await RefreshAsync();
+            if (!counterNotFound) polling = PollAsync();
+        }
+        catch (HttpRequestException ex) { HandleApiError(ex); }
         //RunTimer();
     }
-    private async void IncrementCounter(int count)
+    private async Task IncrementCounter(int count)
     {
-        currentOccupancy= await entranceCounterService.UpdateCountAsync(entranceCounter.EntranceCounterSqid, count);
-        hubConnection.InvokeAsync("UpdateOccupancy", locationSqid, currentOccupancy, OccupancyThresholdWarning);
+        try
+        {
+            var counter = await TrackerApi.UpdateAsync(entranceCounter.EntranceCounterSqid, count, cancellation.Token);
+            if (counter == null)
+            {
+                Snackbar.Add("Entrance counter not found.", Severity.Error);
+                return;
+            }
+            currentOccupancy = counter.CurrentOccupancy;
+            IsThresholdExceeded();
+        }
+        catch (HttpRequestException ex) { HandleApiError(ex); }
+    }
+
+    private async Task RefreshAsync()
+    {
+        var counter = await TrackerApi.GetAsync(entranceCounter.EntranceCounterSqid, cancellation.Token);
+        if (counter == null)
+        {
+            counterNotFound = true;
+            entryButtonsDisabled = true;
+            Snackbar.Add("Entrance counter not found.", Severity.Error);
+            return;
+        }
+        currentOccupancy = counter.CurrentOccupancy;
+        maxOccupancy = counter.MaxOccupancy;
+        OccupancyThresholdWarning = counter.OccupancyThresholdWarning;
         IsThresholdExceeded();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+                if (counterNotFound) break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (HttpRequestException ex) { await InvokeAsync(() => HandleApiError(ex)); }
+    }
+
+    private void HandleApiError(HttpRequestException ex)
+    {
+        if (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var returnUrl = Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery);
+            Navigation.NavigateTo($"/Account/Login?returnUrl={returnUrl}", forceLoad: true);
+            return;
+        }
+        entryButtonsDisabled = true;
+        Snackbar.Add(ex.StatusCode == HttpStatusCode.Forbidden
+            ? "You do not have access to this tracker."
+            : "Unable to contact the tracker service.", Severity.Error);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        cancellation.Cancel();
+        if (polling != null) await polling;
+        cancellation.Dispose();
     }
 
     private void CloseDialog()
@@ -145,22 +194,5 @@
             currentOccupancyColor = Color.Transparent;
         }
     }
-
-    private async void GetCount()
-    {
-        currentOccupancy = await entranceCounterService.GetCountAsync(entranceCounter.EntranceCounterSqid);
-        IsThresholdExceeded();
-
-    }
-    async void RunTimer()
-    {
-        while (await periodicTimer.WaitForNextTickAsync())
-        {
-            GetCount();
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
- 
 
 }

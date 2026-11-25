@@ -47,7 +47,7 @@ namespace OccupancyTracker.Service
             string userInformationSqid = userInformation.UserInformationSqid;
             if (!(await _authorizationService.IsLocAdminAsync(userInformationSqid, organizationSqid, locationSqid)))
             {
-                _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, "", "", $"User does not have rights to update location {locationSqid}", $"User does not have rights to update location {locationSqid}");
+                await _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, "", "", $"User does not have rights to update location {locationSqid}", $"User does not have rights to update location {locationSqid}");
             }
             var loc = await GetAsync(organizationSqid, locationSqid, userInformation, true);
             if (loc == null)
@@ -334,7 +334,7 @@ namespace OccupancyTracker.Service
             string userInformationSqid = userInformation.UserInformationSqid;
             if (!(await _authorizationService.IsLocAdminAsync(userInformationSqid, organizationSqid, locationSqid)))
             {
-                _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, "", "", $"User does not have rights to update location {locationSqid}", $"User does not have rights to update location {locationSqid}");
+                await _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, "", "", $"User does not have rights to update location {locationSqid}", $"User does not have rights to update location {locationSqid}");
             }
             var loc = await GetAsync(organizationSqid, locationSqid, userInformation, true);
             if (loc == null)
