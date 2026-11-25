@@ -1,10 +1,5 @@
 ﻿
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject IOccAuthorizationService occAuthorizationService
-@inject ILocationService locationService
-@inject IOrganizationService organizationService
-@inject IEntranceService entranceService
-@inject IEntranceCounterService entranceCounterService
+@inject FacilityApiClient FacilityApi
 @inject MudBlazor.ISnackbar Snackbar
 
 <MudDialog>
@@ -64,36 +59,22 @@
         MudDialog.Cancel();
     }
 
-    private async void Save()
+    private async Task Save()
     {
         await form.Validate();
         if (form.IsValid)
         {
-            bool newEntrance = false;
-            if (entrance.EntranceId == 0)
+            try
             {
-                newEntrance = true;
-                entrance.CreatedBy = userInformation.UserInformationSqid;
-                entrance.CreatedDate = DateTime.Now;
+                entrance = await FacilityApi.SaveEntranceAsync(organization.OrganizationSqid!, location.LocationSqid!, entrance);
             }
-            else
+            catch (HttpRequestException ex)
             {
-                entrance.ModifiedBy = userInformation.UserInformationSqid;
-                entrance.ModifiedDate = DateTime.Now;
+                Snackbar.Add($"Unable to save entrance: {ex.Message}", Severity.Error);
+                return;
             }
-            if (entrance.OrganizationId == 0)
-            {
-                entrance.OrganizationId = organization.OrganizationId;
-            }
-            await entranceService.SaveAsync(entrance, organization.OrganizationSqid, location.LocationSqid, userInformation);
             entranceSqid = entrance.EntranceSqid;
             Snackbar.Add("Entrance Saved", Severity.Success);
-            if (newEntrance)
-            {
-                await entranceCounterService.CreateEntranceCounterForEntranceAsync(userInformation.UserInformationSqid, entrance);
-                Snackbar.Add("Entrance Saved", Severity.Success);
-                entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, entrance.EntranceSqid, userInformation, true);
-            }
             await OnRefresh.InvokeAsync();
             MudDialog.Close(DialogResult.Ok(true));
         }

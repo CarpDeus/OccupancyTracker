@@ -1,13 +1,12 @@
 ﻿@page "/orgs/{orgSqid}/locations/{locationSqid}"
+@attribute [Authorize]
 @using MudBlazor.Components
 @inject NavigationManager NavigatorService
 
-@inject IOccAuthorizationService occAuthorizationService
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject IDialogService DialogService
-@inject OccupancyTracker.IService.IOrganizationService organizationService
-@inject OccupancyTracker.IService.ILocationService locationService
-@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject OrganizationApiClient OrganizationApi
+@inject FacilityApiClient FacilityApi
+@inject ProfileApiClient ProfileApi
 
 @inject MudBlazor.ISnackbar Snackbar
 
@@ -16,15 +15,15 @@
 <div hidden="@hidden">
     <MudText Typo="Typo.h6">@pageTitle</MudText>
 
-    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @ref="tabs">
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @bind-ActivePanelIndex="activePanelIndex">
         <MudTabPanel Text="Location Details" ID="@("pn_Details")">
-            <LocationForm organization="@organization" location="@location" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit"></LocationForm>
+            <LocationForm organization="@organization" location="@location" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit" OnLocationChanged="LocationChanged"></LocationForm>
         </MudTabPanel>
-        <MudTabPanel Text="Location Entrances" ID="@("pn_Entrances")">
+        <MudTabPanel Text="Location Entrances" ID="@("pn_Entrances")" Disabled="@(location.LocationId == 0)">
             @* <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EntranceNew" StartIcon="@Icons.Material.Filled.Add">Add Entrance</MudButton> *@
 
             <CascadingValue Value="entrances" Name="entranceList">
-                <EntrancesList  location="@location" organization="@organization" userInformation="@userInformation" 
+                <EntrancesList  location="@location" organization="@organization" userInformation="@userInformation" userCanEdit="@userCanEdit"
                 OnRefresh="ChildRefresh" ShouldReRender="ShouldRender" HandleChangeEntranceStatus="@((args) => InvokedChangeStateEntrance(((string[], int,int))args))"
                 HandleEditingEntrance="@((args) => EditEntrance(((string,string))args))" />
             </CascadingValue>
@@ -70,11 +69,11 @@
     private string pageTitle = string.Empty;
     private string errorMessage = string.Empty;
 
-    private MudTabs tabs;
+    private int activePanelIndex;
     internal string formHeight = "25vh";
     internal string tableHeight = "75vh";
 
-    private async void ChildRefresh() 
+    private async Task ChildRefresh()
     { 
         await GetEntrances(true);
         //    NavigatorService.Refresh(true); 
@@ -92,14 +91,22 @@
     }
 
 
-    private async void EditEntrance((string editEntranceSqid, string other) args2)
+    private async Task EditEntrance((string editEntranceSqid, string other) args2)
     {
         string? editEntranceSqid = args2.Item1;
         Entrance entrance = new Entrance { CreatedBy = userInformation.UserInformationSqid, LocationId = location.LocationId, OrganizationId = organization.OrganizationId };
     
         if (editEntranceSqid != "new")
         {
-            entrance = await entranceService.GetAsync(organization.OrganizationSqid, location.LocationSqid, editEntranceSqid, userInformation);
+            try
+            {
+                entrance = await FacilityApi.GetEntranceAsync(organization.OrganizationSqid!, location.LocationSqid!, editEntranceSqid);
+            }
+            catch (HttpRequestException ex)
+            {
+                Snackbar.Add($"Unable to load entrance: {ex.Message}", Severity.Error);
+                return;
+            }
 
             if (entrance.LocationId != location.LocationId)
             {
@@ -110,8 +117,6 @@
         var parameters = new DialogParameters<EntranceForm> { { x => x.organization, organization},
         { x => x.location, location},
         { x => x.userInformation, userInformation} ,
-        { x => x.organization, organization},
-        { x => x.location, location},
         { x => x.entranceSqid, editEntranceSqid },
         {x => x.entrance, entrance },
         {x => x.saveButtonText, editEntranceSqid=="new" ? "Add" : "Save"  }
@@ -134,12 +139,15 @@
 
     private async Task InvokedChangeStateEntrance((string[], int, int) args)
     {
-        Entrance changedEnt = await entranceService.ChangeStatusAsync(args.Item1[0], args.Item1[1], args.Item1[2], args.Item2, args.Item3, userInformation);
-        if (changedEnt.CurrentStatus == args.Item3)
+        try
         {
-
+            await FacilityApi.ChangeEntranceStatusAsync(args.Item1[0], args.Item1[1], args.Item1[2], args.Item2, args.Item3);
             await GetEntrances();
             StateHasChanged();
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to change entrance status: {ex.Message}", Severity.Error);
         }
 
     }
@@ -191,9 +199,13 @@
     {
         try
         {
-            organization = await organizationService.GetAsync(orgSqid, userInformation);
+            organization = await OrganizationApi.GetAsync(orgSqid);
             SetBreadcrumbs();
             return true;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
         }
         catch (System.Security.SecurityException se)
         {
@@ -210,13 +222,13 @@
         try
         {
             if (!string.IsNullOrEmpty(locationSqid))
-                entrances = await entranceService.GetListAsync(userInformation,orgSqid, locationSqid,"",forceCacheRefresh);
+                entrances = await FacilityApi.ListEntrancesAsync(orgSqid, locationSqid);
             if (entrances == null) entrances = new List<Entrance>();
             hideEntranceList = entrances.Count == 0;
 
             return true;
         }
-        catch (System.Security.SecurityException se)
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             NavigatorService.NavigateTo("/NoAccess");
         }
@@ -231,11 +243,11 @@
     {
         try
         {
-            location = await locationService.GetAsync(orgSqid, locationSqid, userInformation);
+            location = await FacilityApi.GetLocationAsync(orgSqid, locationSqid);
             await GetEntrances();
             return true;
         }
-        catch (System.Security.SecurityException se)
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             NavigatorService.NavigateTo("/NoAccess");
         }
@@ -247,17 +259,13 @@
     }
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
-        {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-        }
+        userInformation = await ProfileApi.GetAsync();
 
         if (await GetOrganization())
         {
             if (locationSqid.ToLowerInvariant() == "new")
             {
-                if (!userInformation.IsSuperAdmin && ! await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid))
+                if (!await FacilityApi.CanCreateLocationAsync(orgSqid))
                 {
 
                     hidden = true;
@@ -268,25 +276,29 @@
                 entrances = new();
                 readOnlyForm = false;
                 userCanEdit = true;
-                tabs.ActivatePanel("pn_Details");
+                activePanelIndex = 0;
             }
             else
             {
 
-                if (await GetLocation())
-                {
-                    pageTitle = $"Location Details for {location.LocationName}";
-                    tabs.ActivatePanel("pn_Entrances");
-                }
+                if (!await GetLocation()) return;
+                pageTitle = $"Location Details for {location.LocationName}";
+                activePanelIndex = 1;
             }
 
-            if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid)
-            || await occAuthorizationService.IsLocAdminAsync(userInformation.UserInformationSqid, orgSqid, locationSqid))
+            if (locationSqid.ToLowerInvariant() != "new" && await FacilityApi.CanManageLocationAsync(orgSqid, locationSqid))
             {
                 userCanEdit = true;
 
             }
         }
+    }
+
+    private void LocationChanged(Location updated)
+    {
+        location = updated;
+        if (!string.IsNullOrEmpty(location.LocationSqid))
+            pageTitle = $"Location Details for {location.LocationName}";
     }
 
 }

@@ -1,10 +1,9 @@
 ﻿@page "/orgs"
 
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject IOrganizationService organizationService
+@inject OrganizationApiClient OrganizationApi
+@inject ProfileApiClient ProfileApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject IOccAuthorizationService occAuthorizationService
 @inject NavigationManager NavigatorService
 
 @attribute [Authorize]
@@ -61,8 +60,6 @@
 
 @code {
     [CascadingParameter]
-    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
-    [CascadingParameter]
     public UserInformation? userInformation { get; set; }
 
 
@@ -77,12 +74,8 @@
     
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
-        {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-        }
-        organizations = await organizationService.GetListAsync(userInformation);
+        userInformation = await ProfileApi.GetAsync();
+        organizations = await OrganizationApi.GetListAsync();
         
 
     }
@@ -90,16 +83,22 @@
 
     private async Task InvokedChangeState((string[], int, int) args)
     {
-        Organization changedOrg = await organizationService.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3, userInformation);
-        if (changedOrg.CurrentStatus == args.Item3)
+        try
+        {
+            await OrganizationApi.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3);
             NavigatorService.Refresh(true);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to change organization status: {ex.Message}", Severity.Error);
+        }
     }
 
     private async Task GetProfile()
     {
         try
         {
-            organizations = await organizationService.GetListAsync(userInformation);
+            organizations = await OrganizationApi.GetListAsync();
             StateHasChanged();
         }
         catch (System.Security.SecurityException se)

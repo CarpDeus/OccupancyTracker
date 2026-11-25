@@ -1,13 +1,15 @@
 ﻿@inject IDialogService DialogService
-@inject OccupancyTracker.IService.IEntranceService entranceService
 @inject NavigationManager NavigatorService
 @inject MudBlazor.ISnackbar Snackbar
 
-<MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EntranceNew" StartIcon="@Icons.Material.Filled.Add">Add Entrance</MudButton>
-<div hidden="@(!hideEntranceList)">
+@if (userCanEdit)
+{
+    <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EntranceNew" StartIcon="@Icons.Material.Filled.Add">Add Entrance</MudButton>
+}
+<div hidden="@(entrances.Count != 0)">
     <MudText Typo="Typo.body2">No entrances have been added to this location</MudText>
 </div>
-<div hidden="@(hideEntranceList)">
+<div hidden="@(entrances.Count == 0)">
     <MudDataGrid T="Entrance" Items="@entrances" SortMode="SortMode.Multiple" MultiSelection="false"
 
     FooterClass="d-none" 
@@ -23,15 +25,17 @@
                 <CellTemplate>
                     <MudStack Row="true" Spacing="1">
                         @{
-                            <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit Entrance" Size="Size.Small"
-                            OnClick="(() => Edit(context.Item.EntranceSqid))" />
-
-                            string[] ids = new string[] { organization.OrganizationSqid, location.LocationSqid, (string)context.Item.EntranceSqid };
-                            <OccupancyTracker.Components.Pages.Components.ChangeStatus 
-                            HandleStatusChange="@((args) => HandleChangeEntranceStatus.InvokeAsync(((string[], int,int))args))"
-                            Ids="ids"
-                            ShowUndelete="userInformation.IsSuperAdmin"
-                            CurrentStatus="context.Item.CurrentStatus" />
+                            if (userCanEdit)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit Entrance" Size="Size.Small"
+                                OnClick="(() => Edit(context.Item.EntranceSqid))" />
+                                string[] ids = new string[] { organization.OrganizationSqid, location.LocationSqid, (string)context.Item.EntranceSqid };
+                                <OccupancyTracker.Components.Pages.Components.ChangeStatus
+                                HandleStatusChange="@((args) => HandleChangeEntranceStatus.InvokeAsync(((string[], int,int))args))"
+                                Ids="ids"
+                                ShowUndelete="userInformation.IsSuperAdmin"
+                                CurrentStatus="context.Item.CurrentStatus" />
+                            }
                         }
 
                     </MudStack>
@@ -73,6 +77,7 @@
     [Parameter] public Organization organization { get; set; }
     [Parameter] public Location location { get; set; }
     [Parameter] public UserInformation userInformation { get; set; }
+    [Parameter] public bool userCanEdit { get; set; }
     [Parameter] public Func<bool>? ShouldReRender { get; set; }
 
     private string _searchString = string.Empty;    

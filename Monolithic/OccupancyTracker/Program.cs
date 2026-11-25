@@ -68,9 +68,19 @@ namespace OccupancyTracker
             builder.Services.AddHttpClient<TrackerApiClient>(client =>
                 client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<ProfileApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<OrganizationApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<PublicContentApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<FacilityApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-            builder.Services.AddHostedService<OccupancyLogProcessor>();
-            builder.Services.AddHostedService<OccupancyEmailProcessor>();
             builder.Services.AddEnyimMemcached(builder.Configuration.GetSection("enyimMemcached"));
             //builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             //builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -81,7 +91,6 @@ namespace OccupancyTracker
                  options.UseSqlServer(occupancyConnectionString), 
                  ServiceLifetime.Transient
                 );
-            builder.Services.AddTransient<OccupancyDbInitializer>();
 
             //builder.Services.AddScoped<IProfileService, ProfileService>();
             builder.Services.AddSingleton<NavigatorService>();
@@ -107,7 +116,6 @@ namespace OccupancyTracker
             builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
             builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
             builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
-            builder.Services.AddScoped<IMarkdownTextService, MarkdownTextService>();
 
             builder.Services.AddMvc()
                 .AddJsonOptions(o =>
@@ -136,14 +144,6 @@ namespace OccupancyTracker
 
 
             var app = builder.Build();
-
-            using var scope = app.Services.CreateScope();
-
-            var services = scope.ServiceProvider;
-
-            var initialiser = services.GetRequiredService<OccupancyDbInitializer>();
-
-            initialiser.Run();
 
             app.UseResponseCompression();
             // Configure the HTTP request pipeline.

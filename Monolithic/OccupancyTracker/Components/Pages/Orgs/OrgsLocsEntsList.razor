@@ -1,12 +1,9 @@
 ﻿@page "/orgs/{orgSqid}/locations/{locationSqid}/entrances"
 
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject IOrganizationService organizationService
-@inject ILocationService locationService
-@inject IEntranceService entranceService
+@inject OrganizationApiClient OrganizationApi
+@inject FacilityApiClient FacilityApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject IOccAuthorizationService occAuthorizationService
 @inject NavigationManager NavigatorService
 
 @attribute [Authorize]
@@ -64,19 +61,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
-        {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-        }
         try
         {
-        organization =await organizationService.GetAsync(orgSqid, userInformation);
-        location = await locationService.GetAsync(organization.OrganizationSqid, locationSqid, userInformation);
+        organization = await OrganizationApi.GetAsync(orgSqid);
+        location = await FacilityApi.GetLocationAsync(organization.OrganizationSqid!, locationSqid);
         if (!string.IsNullOrEmpty(locationSqid))
-                entrances = await entranceService.GetListAsync(userInformation,organization.OrganizationSqid, location.LocationSqid);
+                entrances = await FacilityApi.ListEntrancesAsync(organization.OrganizationSqid!, location.LocationSqid!);
         pageTitle = $"Entrances for {organization.OrganizationName} - {location.LocationName}";
         
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
         }
         catch (System.Security.SecurityException se)
         {

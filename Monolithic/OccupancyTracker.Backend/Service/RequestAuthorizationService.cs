@@ -24,7 +24,7 @@ public sealed class RequestAuthorizationService(
         return await GetCurrentUserAsync(context);
     }
 
-    private async Task<UserInformation?> GetCurrentUserAsync(OccupancyContext context)
+    public async Task<UserInformation?> GetCurrentUserAsync(OccupancyContext context)
     {
         var principal = httpContextAccessor.HttpContext?.User;
         if (principal?.Identity?.IsAuthenticated != true)
