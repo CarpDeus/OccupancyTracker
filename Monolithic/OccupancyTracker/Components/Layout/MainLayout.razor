@@ -1,4 +1,5 @@
 ﻿@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.WebUtilities
 @inject IHostEnvironment HostEnvironment
 @inject IOccAuthorizationService occAuthorizationService
 @inject NavigationManager NavigatorService
@@ -71,26 +72,24 @@
                 }
                 userInformation = await occAuthorizationService.GetFromStateAsync(state);
 
-                var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query
-                    .Split('&')
-                    .FirstOrDefault(x => x.StartsWith("returnurl="))?
-                    .Split('=')[1];
+                var query = QueryHelpers.ParseQuery(NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query);
+                var returnUri = query.TryGetValue("returnUrl", out var value) ? value.ToString() : null;
                 loggedInUserEMail = userInformation.HasCompletedRegistration ? $"{userInformation.FirstName} {userInformation.LastName}" : userInformation.EmailAddress;
-                if (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration)
+                if (!handledRedirection && (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration))
                 {
-                    if (!NavigatorService.BaseUri.StartsWith("/profile"))
+                    if (!new Uri(NavigationManager.Uri).AbsolutePath.StartsWith("/profile", StringComparison.OrdinalIgnoreCase))
                     {
                         string profileEditUri = "/profile/edit";
-                        if (!string.IsNullOrEmpty(returnUri))
-                            profileEditUri = $"{profileEditUri}?returnurl={returnUri}";
+                        if (LocalRedirect.IsSafe(returnUri))
+                            profileEditUri = $"{profileEditUri}?returnUrl={Uri.EscapeDataString(returnUri!)}";
                         NavigatorService.NavigateTo(profileEditUri);
                     }
                 }
                 else //No registration issue
                 {
-                    if (!string.IsNullOrEmpty(returnUri) && !NavigatorService.BaseUri.StartsWith(returnUri))
+                    if (LocalRedirect.IsSafe(returnUri) && returnUri != new Uri(NavigationManager.Uri).PathAndQuery)
                     {
-                        NavigatorService.NavigateTo(returnUri);
+                        NavigatorService.NavigateTo(returnUri!);
                     }
                 }
             }

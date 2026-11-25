@@ -7,11 +7,44 @@ When my job was eliminated in 2024, I realized that this application would be a 
 
 So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
 
-The solution also contains `OccupancyTracker.Shared`, a class library for the
-models and DTOs used by the existing application. The EF Core context and
-migrations remain in the monolithic application.
+The solution is being split into `OccupancyTracker.Shared` (models and DTOs),
+`OccupancyTracker.Backend` (services, EF Core context and migrations),
+`OccupancyTracker.Api` (tracker endpoints), and `OccupancyTracker` (the MudBlazor
+UI). The split is **not complete**: organization, location, user, and other UI
+features still call backend services directly.
 
-### Authorization for an API
+### Running the tracker API and UI
+
+Both hosts require the same `ConnectionStrings:Occupancy`, `Sqids`, and
+`enyimMemcached` configuration as the existing application. Configure
+`Auth0:Domain` (the domain without `https://`) and `Auth0:Audience` in both hosts;
+the audience is the identifier of an Auth0 API. The UI also needs its existing
+Auth0 client settings, including `Auth0:ClientId` and `Auth0:ClientSecret`.
+Configure the Auth0 application callbacks for the UI and issue the custom
+super-admin role claim in API access tokens. Supply secrets through your
+deployment's secret store, not checked-in configuration.
+
+The UI currently initializes the database and runs the email and occupancy-log
+background processors, so start it against the existing database before using
+the API. Migrations now live in `OccupancyTracker.Backend`; the existing EF
+migration history is preserved. Until the rest of the split is complete, run
+only one UI instance responsible for those background processors.
+
+In development, the API's `http` launch profile listens on `localhost:5236`;
+the UI's development settings point to that address. Start the hosts with:
+
+```sh
+dotnet run --project Monolithic/OccupancyTracker --launch-profile http
+dotnet run --project Monolithic/OccupancyTracker.Api --launch-profile http
+```
+
+In other environments set the UI's `Api:BaseAddress` to the API's HTTPS address.
+HTTP is accepted only for loopback in development. Access tokens are sent from
+the Blazor server to the API; expired tokens require another sign-in. Occupancy
+displays refresh every five seconds rather than using the former public SignalR
+hub.
+
+### Authorization
 
 `IRequestAuthorizationService` resolves the acting account from the authenticated
 HTTP principal's Auth0 subject, not a user ID supplied by the caller. Organization
@@ -20,15 +53,19 @@ requested resource. A counter is usable anonymously only if its current,
 active counter does not require authentication; otherwise the actor must have
 access to its location.
 
-The host **must** validate access-token signatures, issuer, audience and expiry
-before calling this service. The super-admin role must be included in the
-validated token as `https://occupancy-tracker.secure-scalable.solutions/roles`.
+The tracker API validates access-token signatures, issuer, audience and expiry.
+The super-admin role must be included in the validated access token as
+`https://occupancy-tracker.secure-scalable.solutions/roles`.
 Never accept a principal, actor ID, or `IsSuperAdmin` value from an API request
 body. New SSO account links require an Auth0-verified email address; the web
 application requests the `email_verified` claim from Auth0's user-info endpoint.
 
-This is authorization infrastructure, not an API endpoint: the existing UI still
-uses the monolithic services. Those services accept caller-supplied identities
-and must not be exposed directly. Future API endpoints must use request
-authorization for every operation, enforce resource and field-level checks,
-and protect both tracker operations and SignalR subscriptions.
+`GET /api/trackers/{counterSqid}` reads a counter and
+`POST /api/trackers/{counterSqid}/count` accepts `{"delta": 1}`. Anonymous
+counter URLs are capabilities: anyone with an active public counter URL can
+read and update it, so handle those URLs as secrets. Protected counters require
+a valid token and location access.
+
+The remaining backend services accept caller-supplied identities and must not
+be exposed directly. Future API endpoints must use request authorization for
+every operation and enforce resource and field-level checks.

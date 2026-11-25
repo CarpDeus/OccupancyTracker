@@ -239,21 +239,8 @@ namespace OccupancyTracker.Service
         private async Task<List<CurrentUserRoleInformation>> GetUserRoleInformationAsync(string userInformationSqid, bool forceCacheRefresh = false)
         {
             using var _context = _contextFactory.CreateDbContext();
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
             var userId = _sqids.DecodeUserInformation(userInformationSqid);
-            return await (from role in _context.OrganizationUserRoles
-                join membership in _context.OrganizationUsers on role.OrganizationUserId equals membership.OrganizationUsersId
-                where membership.UserInformationId == userId &&
-                    membership.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
-                    (!membership.StartDate.HasValue || membership.StartDate <= today) &&
-                    (!membership.EndDate.HasValue || membership.EndDate >= today)
-                select new CurrentUserRoleInformation
-                {
-                    OrganizationSqid = _sqids.EncodeOrganizationId(membership.OrganizationId),
-                    LocationSqid = role.Location != null ? role.Location.LocationSqid : null,
-                    OrganizationWide = role.OrganizationWide,
-                    RoleName = role.RoleName
-                }).ToListAsync();
+            return await AuthorizationGrantStore.GetRolesAsync(_context, _sqids, userId);
         }
 
         /// <summary>

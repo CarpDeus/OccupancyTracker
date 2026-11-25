@@ -1,88 +1,28 @@
-﻿@page "/sso-post-signon"
+@page "/sso-post-signon"
 @layout Layout.EmptyLayout
-
-@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
-@inject ProtectedSessionStorage ProtectedSessionStore
-@inject TokenProvider tokenProvider
-@inject IAuthorizationService AuthorizationService
-@inject IOccAuthorizationService occAuthorizationService
-@inject NavigationManager NavigatorService
+@using Microsoft.AspNetCore.WebUtilities
+@inject IOccAuthorizationService Authorization
+@inject NavigationManager Navigation
 
 @code {
+    [CascadingParameter] public Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
-    [CascadingParameter]
-    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
-    [CascadingParameter]
-    public UserInformation? userInformation { get; set; }
-
-
-    private string IdToken = "";
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateTask;
-        if (userInformation == null)
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-        IdToken = tokenProvider.IdToken;
-
-
-        // Determine if we need to redirect the user
-        ProtectedSessionStore.SetAsync("loggedInUserSqid", userInformation.UserInformationSqid);
-        // var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query
-        //     .Split('&')
-        //     .FirstOrDefault(x => x.StartsWith("returnurl="))?
-        //     .Split('=')[1];
-        var returnUri = NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query;
-        // Ensure Registration is complete
-        if (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration)
+        var user = await Authorization.GetFromStateAsync(state);
+        if (user == null)
         {
-            if (!NavigatorService.BaseUri.StartsWith("/profile"))
-            {
-                string profileEditUri = "/profile/edit";
-                if (!string.IsNullOrEmpty(returnUri))
-                    profileEditUri = $"{profileEditUri}?returnurl={returnUri}";
-                NavigatorService.NavigateTo(profileEditUri);
-            }
+            Navigation.NavigateTo("/Account/Login", forceLoad: true);
+            return;
         }
-        //No registration issue
-        if (!string.IsNullOrEmpty(returnUri))
-        {
-            var returnUrl = returnUri.Split('&')
-                                     .FirstOrDefault(x => x.StartsWith("returnurl="))?
-                                     .Split('=')[1];
-            if (!string.IsNullOrEmpty(returnUrl) && !NavigatorService.BaseUri.StartsWith(returnUrl))
-            {
-                NavigatorService.NavigateTo(returnUrl);
-            }
-        }
-        NavigatorService.NavigateTo("/");
-        await base.OnInitializedAsync();
 
-
+        var query = QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+        var returnUrl = query.TryGetValue("returnUrl", out var value) ? value.ToString() : "/";
+        if (!LocalRedirect.IsSafe(returnUrl)) returnUrl = "/";
+        if (!Authorization.HasCompletedRegistration(user))
+            Navigation.NavigateTo($"/profile/edit?returnUrl={Uri.EscapeDataString(returnUrl)}");
+        else
+            Navigation.NavigateTo(returnUrl);
     }
-    // protected override Task OnAfterRenderAsync(bool firstRender)
-    // {
-    //      if (firstRender)
-    //     {
-    //         ProtectedSessionStore.SetAsync("loggedInUserSqid", userInformation.UserInformationSqid);
-    //         var returnUrl = NavigatorService.NavigationManager.ToAbsoluteUri(NavigatorService.NavigationManager.Uri).Query
-    //             .Split('&')
-    //             .FirstOrDefault(x => x.StartsWith("returnurl="))?
-    //             .Split('=')[1];
-
-
-    //         if (!string.IsNullOrEmpty(returnUrl))
-    //         {
-    //             NavigatorService.NavigationManager.NavigateTo(returnUrl);
-    //         }
-    //         else if (!NavigatorService.NavigationManager.BaseUri.StartsWith("/profile"))
-    //         {
-    //             if (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration)
-    //             {
-    //                 NavigatorService.NavigationManager.NavigateTo($"/profile/edit");
-    //             }
-    //         }
-    //     }
-    //     return base.OnAfterRenderAsync(firstRender);
-
-    // }
 }

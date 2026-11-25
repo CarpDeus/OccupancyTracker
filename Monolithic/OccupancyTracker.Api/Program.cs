@@ -1,0 +1,77 @@
+using System.Security;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IService;
+using OccupancyTracker.Models;
+using OccupancyTracker.Service;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    var domain = builder.Configuration["Auth0:Domain"];
+    var audience = builder.Configuration["Auth0:Audience"];
+    if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(audience))
+        throw new InvalidOperationException("Auth0:Domain and Auth0:Audience must be configured.");
+    options.Authority = new Uri($"https://{domain.TrimEnd('/')}/").ToString();
+    options.Audience = audience;
+    options.MapInboundClaims = false;
+});
+builder.Services.AddAuthorization();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddEnyimMemcached(builder.Configuration.GetSection("enyimMemcached"));
+builder.Services.AddDbContextFactory<OccupancyContext>((services, options) =>
+{
+    var connectionString = services.GetRequiredService<IConfiguration>().GetConnectionString("Occupancy")
+        ?? throw new InvalidOperationException("Connection string 'Occupancy' not found.");
+    options.UseSqlServer(connectionString);
+}, ServiceLifetime.Transient);
+builder.Services.AddSingleton<ISqidsEncoderFactory, SqidsEncoderFactory>();
+builder.Services.AddSingleton<IOccAuthorizationService, OccAuthorizationService>();
+builder.Services.AddScoped<RequestAuthorizationService>();
+builder.Services.AddScoped<TrackerOperations>();
+
+var app = builder.Build();
+_ = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>()
+    .Get(JwtBearerDefaults.AuthenticationScheme);
+if (string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("Occupancy")))
+    throw new InvalidOperationException("Connection string 'Occupancy' not found.");
+app.UseHttpsRedirection();
+app.UseEnyimMemcached();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/api/trackers/{counterSqid}", async (string counterSqid, TrackerOperations tracker) =>
+    await ExecuteAsync(() => tracker.ReadAsync(counterSqid)));
+app.MapPost("/api/trackers/{counterSqid}/count", async (string counterSqid, CounterChange change, TrackerOperations tracker) =>
+    await ExecuteAsync(() => tracker.UpdateAsync(counterSqid, change.Delta)));
+
+app.Run();
+
+static async Task<IResult> ExecuteAsync(Func<Task<TrackerResult>> operation)
+{
+    try
+    {
+        var result = await operation();
+        return result.Access switch
+        {
+            TrackerAccess.Success => Results.Ok(result.Counter),
+            TrackerAccess.NotFound => Results.NotFound(),
+            TrackerAccess.Unauthenticated => Results.Unauthorized(),
+            _ => Results.Forbid()
+        };
+    }
+    catch (SecurityException)
+    {
+        return Results.Forbid();
+    }
+    catch (OverflowException)
+    {
+        return Results.BadRequest("The requested change would exceed the supported occupancy range.");
+    }
+}
+
+public sealed class CounterChange
+{
+    public required int Delta { get; init; }
+}
+public partial class Program;

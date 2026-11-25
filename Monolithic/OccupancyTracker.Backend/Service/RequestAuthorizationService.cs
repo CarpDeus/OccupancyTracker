@@ -20,6 +20,12 @@ public sealed class RequestAuthorizationService(
 
     public async Task<UserInformation?> GetCurrentUserAsync()
     {
+        await using var context = await contextFactory.CreateDbContextAsync();
+        return await GetCurrentUserAsync(context);
+    }
+
+    private async Task<UserInformation?> GetCurrentUserAsync(OccupancyContext context)
+    {
         var principal = httpContextAccessor.HttpContext?.User;
         if (principal?.Identity?.IsAuthenticated != true)
             return null;
@@ -32,7 +38,6 @@ public sealed class RequestAuthorizationService(
         if (subjects.Count != 1 || string.IsNullOrWhiteSpace(subjects[0]))
             throw new SecurityException("The authenticated principal must contain exactly one subject.");
 
-        await using var context = await contextFactory.CreateDbContextAsync();
         var sso = await context.UserSsoInformation.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Auth0Identifier == subjects[0]);
         if (sso?.UserInformationId is not > 0 ||
@@ -82,10 +87,15 @@ public sealed class RequestAuthorizationService(
 
     public async Task<bool> CanUseCounterAsync(string entranceCounterSqid)
     {
+        await using var context = await contextFactory.CreateDbContextAsync();
+        return await CanUseCounterAsync(context, entranceCounterSqid);
+    }
+
+    public async Task<bool> CanUseCounterAsync(OccupancyContext context, string entranceCounterSqid)
+    {
         if (string.IsNullOrEmpty(entranceCounterSqid))
             return false;
 
-        await using var context = await contextFactory.CreateDbContextAsync();
         var counter = await (from c in context.EntranceCounters.AsNoTracking()
             join e in context.Entrances.AsNoTracking() on c.EntranceId equals e.EntranceId
             join l in context.Locations.AsNoTracking() on c.LocationId equals l.LocationId
@@ -102,6 +112,10 @@ public sealed class RequestAuthorizationService(
             return false;
         if (!counter.RequiresAuthentication)
             return true;
-        return !string.IsNullOrEmpty(await GetLocationRoleAsync(counter.OrganizationSqid, counter.LocationSqid));
+        var actor = await GetCurrentUserAsync(context);
+        if (actor == null) return false;
+        var roles = await AuthorizationGrantStore.GetRolesAsync(context, sqids, actor.UserInformationId);
+        return !string.IsNullOrEmpty(ResourceAuthorization.LocationRole(
+            roles, counter.OrganizationSqid, counter.LocationSqid, actor.IsSuperAdmin));
     }
 }

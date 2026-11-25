@@ -73,6 +73,7 @@
 
 
   <ItemGroup>
+    <ProjectReference Include="..\OccupancyTracker.Backend\OccupancyTracker.Backend.csproj" />
     <ProjectReference Include="..\OccupancyTracker.Shared\OccupancyTracker.Shared.csproj" />
   </ItemGroup>
   
