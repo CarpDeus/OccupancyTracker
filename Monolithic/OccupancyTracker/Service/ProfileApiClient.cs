@@ -15,6 +15,12 @@ public sealed class ProfileApiClient(HttpClient client, TokenProvider tokens)
     public Task<UserInformation> SaveAsync(UserInformation profile, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Put, "api/me", profile, cancellationToken);
 
+    public Task<UserInformation> GetUserAsync(string sqid, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Get, $"api/admin/users/{Uri.EscapeDataString(sqid)}", null, cancellationToken);
+
+    public Task<UserInformation> SaveUserAsync(string sqid, UserInformation profile, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Put, $"api/admin/users/{Uri.EscapeDataString(sqid)}", profile, cancellationToken);
+
     private async Task<UserInformation> SendAsync(HttpMethod method, string path, UserInformation? profile, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(tokens.AccessToken))

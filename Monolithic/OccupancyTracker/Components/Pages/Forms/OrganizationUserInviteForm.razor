@@ -1,5 +1,5 @@
 ﻿@inject MudBlazor.ISnackbar Snackbar
-@inject IOrganizationUserService organizationUserService
+@inject OrganizationUserApiClient OrganizationUsersApi
 
 
 
@@ -9,11 +9,11 @@
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2">Enter the email addresses of the users you would like to invite to this organization. Separate multiple email addresses with a comma, semi-colon or put on separate lines</MudText>
-        <MudTextField Label="EmailAddresses" @bind-Value="emailAddresses" />
+        <MudTextField Label="EmailAddresses" @bind-Value="emailAddresses" Lines="3" />
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" OnClick="Submit">Ok</MudButton>
+        <MudButton Disabled="@submitting" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Disabled="@submitting" Color="Color.Primary" OnClick="Submit">Ok</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -26,30 +26,48 @@
     public UserInformation userInformation { get; set; }
 
     private string emailAddresses = string.Empty;
+    private bool submitting;
 
-    private async void Submit(){
-        List<string> emailsToProcess = new();
-        if (emailAddresses.Contains(","))
+    private async Task Submit()
+    {
+        var emails = emailAddresses.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (emails.Length == 0)
         {
-            emailsToProcess = emailAddresses.Split(",").ToList();
+            Snackbar.Add("Enter at least one email address.", Severity.Error);
+            return;
         }
-        else if (emailAddresses.Contains(";"))
+        submitting = true;
+        try
         {
-            emailsToProcess = emailAddresses.Split(";").ToList();
+            var failed = new List<string>();
+            foreach (var email in emails)
+            {
+                try
+                {
+                    if (!await OrganizationUsersApi.InviteAsync(organization.OrganizationSqid!, email))
+                    {
+                        failed.Add(email);
+                        Snackbar.Add($"Unable to invite {email}: the API did not accept the invitation.", Severity.Error);
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    failed.Add(email);
+                    Snackbar.Add($"Unable to invite {email}: {ex.Message}", Severity.Error);
+                }
+            }
+            if (failed.Count > 0)
+            {
+                emailAddresses = string.Join(", ", failed);
+                return;
+            }
+            Snackbar.Add("Invitations queued.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
         }
-        else if (emailAddresses.Contains("\n"))
+        finally
         {
-            emailsToProcess = emailAddresses.Split("\n").ToList();
+            submitting = false;
         }
-        else
-        {
-            emailsToProcess.Add(emailAddresses);
-        }
-        foreach (string email in emailsToProcess)
-        {
-             await organizationUserService.InviteUserToOrganizationAsync(userInformation.UserInformationSqid, "", organization.OrganizationSqid, email);
-        }
-        MudDialog.Close(DialogResult.Ok(true));
     }
     
 

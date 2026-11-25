@@ -19,6 +19,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
@@ -133,6 +134,7 @@ public class AuthorizationTests
                 {
                     ["Auth0:Domain"] = "issuer.example",
                     ["Auth0:Audience"] = audience,
+                    ["OccupancyDomain"] = "occupancy.example",
                     ["ConnectionStrings:Occupancy"] = "Server=unused;Database=unused;TrustServerCertificate=True"
                 }));
             builder.ConfigureServices(services =>
@@ -176,6 +178,8 @@ public class AuthorizationTests
         Assert.Equal("Fallback", await client.GetFromJsonAsync<string>("/api/public-content/terms"));
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/public-content/secret")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/organizations")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/organizations/org:1/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode = "invite:1:1" })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/trackers/public-counter")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
@@ -409,6 +413,141 @@ public class AuthorizationTests
             Assert.True(await context.OrganizationUserRoles.AnyAsync(x => x.OrganizationUserId == membership.OrganizationUsersId &&
                 x.OrganizationWide && x.RoleName == "OrganizationAdmin"));
         }
+
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var org = await context.Organizations.SingleAsync(x => x.OrganizationId == 1);
+            org.CurrentStatus = 0;
+            org.OrganizationName = "<script>alert(1)</script>";
+            var alice = await context.UserInformation.SingleAsync(x => x.UserInformationId == 1);
+            alice.HasCompletedRegistration = true;
+            await context.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:1/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/organizations/org:1/invitations", new { emailAddress = "bob@example.com" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/admin/users/user:1")).StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.True(await client.GetFromJsonAsync<bool>("/api/organizations/org:1/users/can-manage"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:2/invitations")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/organizations/org:1/invitations", new { emailAddress = "Invalid <bob@example.com>" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/organizations/org:1/invitations", new { emailAddress = " bob@example.com " })).StatusCode);
+        var invitations = (await client.GetFromJsonAsync<List<OrganizationInvitationSummary>>("/api/organizations/org:1/invitations"))!;
+        var invitationCode = Assert.Single(invitations).InvitationCode;
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var mail = JsonSerializer.Deserialize<SendGridData>((await context.EmailProcessorQueue.SingleAsync()).EmailProcessorData)!;
+            Assert.Equal("bob@example.com", mail.ToEmailAddress);
+            Assert.Contains("&lt;script&gt;", mail.HtmlContent);
+            Assert.DoesNotContain("<script>", mail.HtmlContent);
+            Assert.Contains("https://occupancy.example/profile/edit?invitationCode=", mail.HtmlContent);
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 2)).HasCompletedRegistration = false;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 2)).HasCompletedRegistration = true;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        Assert.False(await client.GetFromJsonAsync<bool>("/api/organizations/org:1/users/can-manage"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:1/users")).StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        var members = (await client.GetFromJsonAsync<List<OrganizationUserSummary>>("/api/organizations/org:1/users"))!;
+        Assert.Equal(2, members.Count);
+        Assert.Contains(members, x => x.UserInformationSqid == "user:2");
+        Assert.Empty((await client.GetFromJsonAsync<List<OrganizationInvitationSummary>>("/api/organizations/org:1/invitations"))!);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/organizations/org:1/invitations", new { emailAddress = "bob@example.com" })).StatusCode);
+        invitationCode = Assert.Single((await client.GetFromJsonAsync<List<OrganizationInvitationSummary>>("/api/organizations/org:1/invitations"))!).InvitationCode;
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            membership.UserStatusId = AuthorizationRecords.UserStatus.NoAccess.Id;
+            await context.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            membership.UserStatusId = AuthorizationRecords.UserStatus.Approved.Id;
+            membership.EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            membership.EndDate = null;
+            var invite = await context.OrganizationInvitationCodes.SingleAsync(x => x.InvitationCode == invitationCode);
+            invite.CurrentStatus = 1;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var invite = await context.OrganizationInvitationCodes.SingleAsync(x => x.InvitationCode == invitationCode);
+            invite.CurrentStatus = 0;
+            (await context.Organizations.SingleAsync(x => x.OrganizationId == 1)).CurrentStatus = 1;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.Organizations.SingleAsync(x => x.OrganizationId == 1)).CurrentStatus = 0;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode })).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+            Assert.Equal(1, await context.OrganizationUsers.CountAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2));
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/admin/users/user:2")).StatusCode);
+        var adminEdit = new
+        {
+            firstName = "Updated", lastName = "Bob", emailAddress = "forged@example.com", isSuperAdmin = true,
+            userInformationId = 1, userInformationSqid = "user:1", belongsToOrganization = false,
+            contactAddress = edit.organizationAddress, contactPhoneNumber = edit.phoneNumber
+        };
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/admin/users/user:2", adminEdit)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var bob = await context.UserInformation.SingleAsync(x => x.UserInformationId == 2);
+            Assert.Equal("Updated", bob.FirstName);
+            Assert.Equal("bob@example.com", bob.EmailAddress);
+            Assert.Equal("user:2", bob.UserInformationSqid);
+            Assert.False(bob.IsSuperAdmin);
+            Assert.True(bob.BelongsToOrganization);
+        }
+    }
+
+    [Fact]
+    public async Task UserManagementClientSendsCurrentTokenAndSurfacesFailures()
+    {
+        var handler = new TrackerHandler { ResponseBody = true };
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
+        var tokens = new TokenProvider { AccessToken = "first-user" };
+        var client = new OrganizationUserApiClient(http, tokens);
+        Assert.True(await client.InviteAsync("org:1", "bob@example.com"));
+        Assert.Equal("/api/organizations/org%3A1/invitations", handler.Path);
+        Assert.Equal("Bearer first-user", handler.Authorization);
+        using var body = JsonDocument.Parse(handler.Content!);
+        Assert.Equal("bob@example.com", body.RootElement.GetProperty("emailAddress").GetString());
+        tokens.AccessToken = "second-user";
+        handler.Status = HttpStatusCode.Forbidden;
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.RedeemAsync("code"));
+        Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
+        Assert.Equal("Bearer second-user", handler.Authorization);
+        Assert.Equal("/api/me/invitations/redeem", handler.Path);
     }
 
     [Fact]
@@ -589,6 +728,7 @@ public class AuthorizationTests
     private sealed class TrackerHandler : HttpMessageHandler
     {
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+        public object ResponseBody { get; set; } = new { entranceCounterSqid = "counter" };
         public string? Authorization { get; private set; }
         public string? Content { get; private set; }
         public HttpMethod? Method { get; private set; }
@@ -600,7 +740,7 @@ public class AuthorizationTests
             Method = request.Method;
             Path = request.RequestUri?.AbsolutePath;
             Content = request.Content == null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(Status) { Content = JsonContent.Create(new { entranceCounterSqid = "counter" }) };
+            return new HttpResponseMessage(Status) { Content = JsonContent.Create(ResponseBody) };
         }
 
     }
@@ -645,7 +785,7 @@ public class AuthorizationTests
         public string EncodeEntranceId(long organizationId, long locationId, long entranceId) => $"ent:{entranceId}";
         public string EncodeEntranceCounterId(long organizationId, long locationId, long entranceId, long entranceCounterId) => $"counter:{entranceCounterId}";
         public string EncodeInvalidSecurityAttempt(long id) => throw new NotSupportedException();
-        public string EncodeInvitationId(long organizationId, long invitationId) => throw new NotSupportedException();
+        public string EncodeInvitationId(long organizationId, long invitationId) => $"invite:{organizationId}:{invitationId}";
         public ParsedOrganizationSqids DecodeSqids(string? OrganizationSqid = null, string? LocationSqid = null,
             string? EntranceSqid = null, string? EntranceCounterSqid = null) => throw new NotSupportedException();
     }

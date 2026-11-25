@@ -9,10 +9,9 @@ So I decided to push out a monolithic Blazor server application, using [MudBlazo
 
 The solution is being split into `OccupancyTracker.Shared` (models and DTOs),
 `OccupancyTracker.Backend` (services, EF Core context and migrations),
-`OccupancyTracker.Api` (tracker, profile, organization, location, entrance and
-public-content endpoints), and `OccupancyTracker` (the MudBlazor UI). The split
-is **not complete**: user management and other UI features still call backend
-services directly.
+`OccupancyTracker.Api` (tracker, profile, organization, user, location, entrance
+and public-content endpoints), and `OccupancyTracker` (the MudBlazor UI). The
+split is **not complete**: other UI features still call backend services directly.
 
 ### Running the tracker API and UI
 
@@ -29,7 +28,9 @@ The API initializes the database and runs the email and occupancy-log
 background processors. Migrations live in `OccupancyTracker.Backend`; the
 existing EF migration history is preserved. Run only one API instance
 responsible for those processors. Configure `SendGridKey` and the existing
-email settings on the API. During the migration, the UI still needs database
+email settings on the API. Set `OccupancyDomain` on the API to the public UI
+hostname (optionally with a port, without a scheme or path); invitation emails
+link to that host over HTTPS. During the migration, the UI still needs database
 and cache configuration for its remaining direct service calls.
 
 In development, the API's `http` launch profile listens on `localhost:5236`;
@@ -86,6 +87,15 @@ Location creation requires organization administration; location and entrance
 changes require administration of that location. New entrances and their
 initial public counters are created together. Existing capability-link
 semantics for counters are unchanged.
+Organization administrators can list members and outstanding invitations and
+queue invitations through `/api/organizations/{orgSqid}/users` and
+`/api/organizations/{orgSqid}/invitations`. Invitations can be redeemed via
+`POST /api/me/invitations/redeem` only by a completed account with the matching
+email address. Redemption does not reactivate denied or expired memberships.
+Super-admins can read and edit another user's profile through
+`/api/admin/users/{sqid}`; identity and privilege fields cannot be changed there.
+Membership and role editing remains unimplemented; the previous user-rights UI
+was excluded from the build.
 `GET /api/public-content/{page}` serves the public `privacy` and `terms` pages.
 
 The remaining backend services accept caller-supplied identities and must not
