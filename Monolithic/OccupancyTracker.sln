@@ -5,6 +5,8 @@ VisualStudioVersion = 17.11.35327.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker", "OccupancyTracker\OccupancyTracker.csproj", "{67BBD93D-5FE9-47E7-8125-D3F49E0ADB98}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker.Shared", "OccupancyTracker.Shared\OccupancyTracker.Shared.csproj", "{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{67BBD93D-5FE9-47E7-8125-D3F49E0ADB98}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{67BBD93D-5FE9-47E7-8125-D3F49E0ADB98}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{67BBD93D-5FE9-47E7-8125-D3F49E0ADB98}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -7,4 +7,6 @@ When my job was eliminated in 2024, I realized that this application would be a 
 
 So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
 
- 
+The solution also contains `OccupancyTracker.Shared`, a class library for the
+models and DTOs used by the existing application. The EF Core context and
+migrations remain in the monolithic application.
