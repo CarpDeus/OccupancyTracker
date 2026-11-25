@@ -20,6 +20,32 @@ public sealed class OrganizationUserOperations(
 
     private async Task<FacilityResult<T>> ExecuteAdminAsync<T>(string orgSqid, Func<Scope, Task<FacilityResult<T>>> operation)
     {
+        static bool IsDeadlock(Exception exception)
+        {
+            for (Exception? current = exception; current != null; current = current.InnerException)
+            {
+                if (current is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
+                    return true;
+            }
+            return false;
+        }
+
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await ExecuteAdminOnceAsync(orgSqid, operation);
+            }
+            catch (Exception ex) when (attempt < maxAttempts && IsDeadlock(ex))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
+            }
+        }
+    }
+
+    private async Task<FacilityResult<T>> ExecuteAdminOnceAsync<T>(string orgSqid, Func<Scope, Task<FacilityResult<T>>> operation)
+    {
         await using var db = await contexts.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
