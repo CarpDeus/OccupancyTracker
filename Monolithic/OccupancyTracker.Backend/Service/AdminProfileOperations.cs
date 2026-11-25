@@ -21,6 +21,16 @@ public sealed class AdminProfileOperations(
         if (edit != null)
         {
             if (edit.ContactAddress == null || edit.ContactPhoneNumber == null) return new(OrganizationAccess.Invalid);
+            var address = edit.ContactAddress;
+            if (edit.FirstName is null or { Length: > 256 } ||
+                edit.LastName is null or { Length: > 256 } ||
+                address.AddressLine1 is null or { Length: > 1024 } ||
+                address.AddressLine2 is { Length: > 1024 } ||
+                address.City is null or { Length: > 512 } ||
+                address.State is null or { Length: > 512 } ||
+                address.PostalCode is null or { Length: > 128 } ||
+                address.Country is null or { Length: > 256 })
+                return new(OrganizationAccess.Invalid);
             target.FirstName = edit.FirstName;
             target.LastName = edit.LastName;
             target.ContactAddress = edit.ContactAddress;
