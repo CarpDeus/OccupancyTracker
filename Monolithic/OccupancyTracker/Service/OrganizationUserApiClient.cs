@@ -12,6 +12,10 @@ public sealed class OrganizationUserApiClient(HttpClient client, TokenProvider t
         SendAsync<bool>(HttpMethod.Get, $"{Organization(org)}/users/can-manage", null, ct);
     public Task<List<OrganizationUserSummary>> GetUsersAsync(string org, CancellationToken ct = default) =>
         SendAsync<List<OrganizationUserSummary>>(HttpMethod.Get, $"{Organization(org)}/users", null, ct);
+    public Task<OrganizationMembership> GetMembershipAsync(string org, string user, CancellationToken ct = default) =>
+        SendAsync<OrganizationMembership>(HttpMethod.Get, $"{Organization(org)}/users/{Uri.EscapeDataString(user)}", null, ct);
+    public Task<OrganizationMembership> SaveMembershipAsync(string org, string user, MembershipEdit edit, CancellationToken ct = default) =>
+        SendAsync<OrganizationMembership>(HttpMethod.Put, $"{Organization(org)}/users/{Uri.EscapeDataString(user)}", edit, ct);
     public Task<List<OrganizationInvitationSummary>> GetInvitationsAsync(string org, CancellationToken ct = default) =>
         SendAsync<List<OrganizationInvitationSummary>>(HttpMethod.Get, $"{Organization(org)}/invitations", null, ct);
     public Task<bool> InviteAsync(string org, string email, CancellationToken ct = default) =>

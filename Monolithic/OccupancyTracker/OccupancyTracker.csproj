@@ -25,7 +25,6 @@
   <ItemGroup>
     <Content Remove="Components\Admin\Components\LocationEditor.razor" />
     <Content Remove="Components\Admin\Components\OrganizationEditor.razor" />
-    <Content Remove="Components\Pages\Orgs\OrgUserRights.razor" />
   </ItemGroup>
 
   

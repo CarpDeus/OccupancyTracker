@@ -94,8 +94,13 @@ queue invitations through `/api/organizations/{orgSqid}/users` and
 email address. Redemption does not reactivate denied or expired memberships.
 Super-admins can read and edit another user's profile through
 `/api/admin/users/{sqid}`; identity and privilege fields cannot be changed there.
-Membership and role editing remains unimplemented; the previous user-rights UI
-was excluded from the build.
+Organization administrators and super-admins can edit membership status,
+inclusive UTC start/end dates, organization-wide roles, and per-location roles
+through `/api/organizations/{orgSqid}/users/{userSqid}`. Super-admin privileges
+cannot be assigned there. Concurrent edits are rejected, and an edit cannot
+remove administrator coverage on any current or future day previously covered
+by the edited administrator. This restriction also applies to super-admins.
+Unsupported or duplicate legacy role data must be resolved before editing.
 `GET /api/public-content/{page}` serves the public `privacy` and `terms` pages.
 
 The remaining backend services accept caller-supplied identities and must not

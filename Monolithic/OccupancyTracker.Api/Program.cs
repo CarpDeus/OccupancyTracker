@@ -136,6 +136,10 @@ users.MapGet("/users/can-manage", async (string orgSqid, OrganizationUserOperati
     await ExecuteFacilityAsync(() => operations.CanManageAsync(orgSqid)));
 users.MapGet("/users", async (string orgSqid, OrganizationUserOperations operations) =>
     await ExecuteFacilityAsync(() => operations.ListUsersAsync(orgSqid)));
+users.MapGet("/users/{userSqid}", async (string orgSqid, string userSqid, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.ReadMembershipAsync(orgSqid, userSqid)));
+users.MapPut("/users/{userSqid}", async (string orgSqid, string userSqid, MembershipEdit edit, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.UpdateMembershipAsync(orgSqid, userSqid, edit)));
 users.MapGet("/invitations", async (string orgSqid, OrganizationUserOperations operations) =>
     await ExecuteFacilityAsync(() => operations.ListInvitationsAsync(orgSqid)));
 users.MapPost("/invitations", async (string orgSqid, InviteOrganizationUser invite, OrganizationUserOperations operations) =>

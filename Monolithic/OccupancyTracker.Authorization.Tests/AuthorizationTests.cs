@@ -528,6 +528,130 @@ public class AuthorizationTests
             Assert.False(bob.IsSuperAdmin);
             Assert.True(bob.BelongsToOrganization);
         }
+
+        static MembershipEdit MembershipChange(OrganizationMembership membership, string? role, int status = 0,
+            DateOnly? start = null, DateOnly? end = null, List<MembershipRoleEdit>? locationRoles = null) => new()
+        {
+            Version = membership.Version, UserStatusId = status, StartDate = start, EndDate = end,
+            OrganizationRole = role,
+            LocationRoles = locationRoles ?? membership.Locations.Where(x => x.RoleName != null)
+                .Select(x => new MembershipRoleEdit { LocationSqid = x.LocationSqid, RoleName = x.RoleName! }).ToList()
+        };
+        const string alicePath = "/api/organizations/org:1/users/user:1";
+        const string bobPath = "/api/organizations/org:1/users/user:2";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.CreateClient().GetAsync(alicePath)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(alicePath)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:2/users/user:1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/organizations/org:1/users/missing")).StatusCode);
+        var aliceMembership = (await client.GetFromJsonAsync<OrganizationMembership>(alicePath))!;
+        var bobMembership = (await client.GetFromJsonAsync<OrganizationMembership>(bobPath))!;
+        Assert.Equal("OrganizationAdmin", aliceMembership.OrganizationRole);
+        Assert.Contains(aliceMembership.Locations, x => x.LocationSqid == "loc:1" && x.RoleName == "LocationAdmin");
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "SuperAdmin"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User", status: 2))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User",
+            start: new DateOnly(2030, 1, 2), end: new DateOnly(2030, 1, 1)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, null,
+            locationRoles: new() { new MembershipRoleEdit { LocationSqid = "loc:2", RoleName = "User" } }))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, null,
+            locationRoles: new() { new MembershipRoleEdit { LocationSqid = "loc:1", RoleName = "OrganizationAdmin" } }))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, null,
+            locationRoles: new() { new MembershipRoleEdit { LocationSqid = "loc:1", RoleName = "User" },
+                new MembershipRoleEdit { LocationSqid = "loc:1", RoleName = "LocationAdmin" } }))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "User"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "OrganizationAdmin",
+            end: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10))))).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, null, status: 1))).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        var promotedResponse = await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "OrganizationAdmin"));
+        Assert.Equal(HttpStatusCode.OK, promotedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User"))).StatusCode);
+        bobMembership = (await promotedResponse.Content.ReadFromJsonAsync<OrganizationMembership>())!;
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 2)).CurrentStatusId = 1;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "User"))).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 2)).CurrentStatusId = 0;
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            membership.EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "User"))).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            membership.EndDate = null;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "User"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(bobPath)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        aliceMembership = (await client.GetFromJsonAsync<OrganizationMembership>(alicePath))!;
+        var restrict = MembershipChange(aliceMembership, null, locationRoles: new()
+        {
+            new MembershipRoleEdit { LocationSqid = "loc:1", RoleName = "User" }
+        });
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(alicePath, restrict)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/organizations/org:1/locations/loc:1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:1/locations/loc:3")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User"))).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        aliceMembership = (await client.GetFromJsonAsync<OrganizationMembership>(alicePath))!;
+        var temporaryAdmin = await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "OrganizationAdmin",
+            end: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10))));
+        Assert.Equal(HttpStatusCode.OK, temporaryAdmin.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User"))).StatusCode);
+        aliceMembership = (await temporaryAdmin.Content.ReadFromJsonAsync<OrganizationMembership>())!;
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "OrganizationAdmin"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User", status: 1))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(alicePath)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        bobMembership = (await client.GetFromJsonAsync<OrganizationMembership>(bobPath))!;
+        Assert.Equal(1, bobMembership.UserStatusId);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "User"))).StatusCode);
+        bobMembership = (await client.GetFromJsonAsync<OrganizationMembership>(bobPath))!;
+        var tampered = new
+        {
+            version = bobMembership.Version, userStatusId = 0, organizationRole = "User",
+            locationRoles = new[] { new { locationSqid = "loc:1", roleName = "LocationAdmin" } },
+            userInformationId = 1, organizationId = 2, isSuperAdmin = true
+        };
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(bobPath, tampered)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var alice = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 1);
+            Assert.True(await context.OrganizationUserRoles.AnyAsync(x => x.OrganizationUserId == alice.OrganizationUsersId &&
+                x.OrganizationWide && x.RoleName == "OrganizationAdmin"));
+            var bob = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            Assert.True(await context.OrganizationUserRoles.AnyAsync(x => x.OrganizationUserId == bob.OrganizationUsersId &&
+                x.LocationId == 1 && x.RoleName == "LocationAdmin"));
+            Assert.False((await context.UserInformation.SingleAsync(x => x.UserInformationId == 2)).IsSuperAdmin);
+        }
+        bobMembership = (await client.GetFromJsonAsync<OrganizationMembership>(bobPath))!;
+        var tomorrow = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(bobPath, MembershipChange(bobMembership, "OrganizationAdmin", start: tomorrow))).StatusCode);
+        aliceMembership = (await client.GetFromJsonAsync<OrganizationMembership>(alicePath))!;
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "User"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(alicePath, MembershipChange(aliceMembership, "OrganizationAdmin",
+            end: tomorrow.AddDays(-1)))).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var bob = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == 1 && x.UserInformationId == 2);
+            context.OrganizationUserRoles.Add(new OrganizationUserRole
+            {
+                OrganizationUserId = bob.OrganizationUsersId, OrganizationWide = true, RoleName = "User"
+            });
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync(bobPath)).StatusCode);
     }
 
     [Fact]
@@ -548,6 +672,22 @@ public class AuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
         Assert.Equal("Bearer second-user", handler.Authorization);
         Assert.Equal("/api/me/invitations/redeem", handler.Path);
+        handler.ResponseBody = new OrganizationMembership
+        {
+            UserInformationSqid = "user:1", Name = "Alice", EmailAddress = "alice@example.com",
+            Locations = new(), Version = "version"
+        };
+        handler.Status = HttpStatusCode.OK;
+        var membership = await client.GetMembershipAsync("org:1", "user:1");
+        Assert.Equal("/api/organizations/org%3A1/users/user%3A1", handler.Path);
+        await client.SaveMembershipAsync("org:1", "user:1", new MembershipEdit
+        {
+            Version = membership.Version, UserStatusId = 1, OrganizationRole = "User", LocationRoles = new()
+        });
+        Assert.Equal(HttpMethod.Put, handler.Method);
+        using var edit = JsonDocument.Parse(handler.Content!);
+        Assert.Equal("version", edit.RootElement.GetProperty("version").GetString());
+        Assert.Equal(1, edit.RootElement.GetProperty("userStatusId").GetInt32());
     }
 
     [Fact]

@@ -9,6 +9,12 @@ Dense="true" Striped="true" Bordered="true" Hover="true" QuickFilter="@FilterFun
     </ToolBarContent>
     <Columns>
         @* <SelectColumn T="Location" /> *@
+        <TemplateColumn Title="Manage">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit membership and roles"
+                    Href="@($"/orgs/{Uri.EscapeDataString(organization.OrganizationSqid!)}/users/{Uri.EscapeDataString(context.Item.UserInformationSqid)}")" />
+            </CellTemplate>
+        </TemplateColumn>
         <PropertyColumn Property="x => x.FirstName" Title="First Name" Sortable="true" />
         <PropertyColumn Property="x => x.LastName" Title="Last Name" Sortable="true" />
         <PropertyColumn Property="x => x.EmailAddress" Title="Email Address" Sortable="true"/>

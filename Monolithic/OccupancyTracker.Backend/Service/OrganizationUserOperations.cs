@@ -1,5 +1,7 @@
 using System.Data;
 using System.Net.Mail;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +68,161 @@ public sealed class OrganizationUserOperations(
                 }).ToListAsync();
             return new(OrganizationAccess.Success, users);
         });
+
+    private sealed record MembershipData(OrganizationUser Membership, List<OrganizationUserRole> Roles, List<Location> Locations);
+
+    private static bool ValidOrganizationRole(string? role) => role == null ||
+        role == AuthorizationRecords.Roles.User.Name ||
+        role == AuthorizationRecords.Roles.LocationAdmin.Name ||
+        role == AuthorizationRecords.Roles.OrganizationAdmin.Name;
+
+    private static bool ValidLocationRole(string? role) =>
+        role == AuthorizationRecords.Roles.User.Name || role == AuthorizationRecords.Roles.LocationAdmin.Name;
+
+    private static string MembershipVersion(MembershipData data)
+    {
+        var state = new
+        {
+            data.Membership.OrganizationUsersId,
+            data.Membership.UserStatusId,
+            data.Membership.StartDate,
+            data.Membership.EndDate,
+            Roles = data.Roles.OrderBy(x => x.OrganizationUserRoleId)
+                .Select(x => new { x.OrganizationUserRoleId, x.OrganizationWide, x.LocationId, x.RoleName })
+        };
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(state))));
+    }
+
+    private static async Task<FacilityResult<MembershipData>> LoadMembershipAsync(Scope scope, string userSqid)
+    {
+        var matches = await scope.Db.OrganizationUsers.Include(x => x.UserInformation)
+            .Where(x => x.OrganizationId == scope.Organization.OrganizationId &&
+                x.UserInformation.UserInformationSqid == userSqid).ToListAsync();
+        if (matches.Count == 0 || !string.Equals(matches[0].UserInformation.UserInformationSqid, userSqid, StringComparison.Ordinal))
+            return new(OrganizationAccess.NotFound);
+        if (matches.Count != 1) return new(OrganizationAccess.Conflict);
+        var membership = matches[0];
+        var roles = await scope.Db.OrganizationUserRoles
+            .Where(x => x.OrganizationUserId == membership.OrganizationUsersId).ToListAsync();
+        var locations = await scope.Db.Locations.AsNoTracking()
+            .Where(x => x.OrganizationId == scope.Organization.OrganizationId).ToListAsync();
+        var locationIds = locations.Select(x => x.LocationId).ToHashSet();
+        if (locations.Any(x => string.IsNullOrEmpty(x.LocationSqid)) ||
+            locations.Select(x => x.LocationSqid).Distinct(StringComparer.Ordinal).Count() != locations.Count ||
+            roles.Any(x => x.OrganizationWide
+                ? x.LocationId != null || !ValidOrganizationRole(x.RoleName) || x.RoleName == null
+                : !x.LocationId.HasValue || !locationIds.Contains(x.LocationId.Value) || !ValidLocationRole(x.RoleName)) ||
+            roles.Count(x => x.OrganizationWide) > 1 ||
+            roles.Where(x => !x.OrganizationWide).GroupBy(x => x.LocationId).Any(g => g.Count() > 1))
+            return new(OrganizationAccess.Conflict);
+        return new(OrganizationAccess.Success, new MembershipData(membership, roles, locations));
+    }
+
+    private static OrganizationMembership DescribeMembership(MembershipData data) => new()
+    {
+        UserInformationSqid = data.Membership.UserInformation.UserInformationSqid!,
+        Name = $"{data.Membership.UserInformation.FirstName} {data.Membership.UserInformation.LastName}".Trim(),
+        EmailAddress = data.Membership.UserInformation.EmailAddress,
+        UserStatusId = data.Membership.UserStatusId,
+        StartDate = data.Membership.StartDate,
+        EndDate = data.Membership.EndDate,
+        OrganizationRole = data.Roles.SingleOrDefault(x => x.OrganizationWide)?.RoleName,
+        Locations = data.Locations.OrderBy(x => x.LocationName).Select(location => new MembershipLocationRole
+        {
+            LocationSqid = location.LocationSqid!,
+            LocationName = location.LocationName,
+            RoleName = data.Roles.SingleOrDefault(x => !x.OrganizationWide && x.LocationId == location.LocationId)?.RoleName
+        }).ToList(),
+        Version = MembershipVersion(data)
+    };
+
+    public Task<FacilityResult<OrganizationMembership>> ReadMembershipAsync(string orgSqid, string userSqid) =>
+        ExecuteAdminAsync<OrganizationMembership>(orgSqid, async scope =>
+        {
+            var loaded = await LoadMembershipAsync(scope, userSqid);
+            return loaded.Access == OrganizationAccess.Success
+                ? new(OrganizationAccess.Success, DescribeMembership(loaded.Value!))
+                : new(loaded.Access);
+        });
+
+    public Task<FacilityResult<OrganizationMembership>> UpdateMembershipAsync(string orgSqid, string userSqid, MembershipEdit edit) =>
+        ExecuteAdminAsync<OrganizationMembership>(orgSqid, async scope =>
+        {
+            var loaded = await LoadMembershipAsync(scope, userSqid);
+            if (loaded.Access != OrganizationAccess.Success) return new(loaded.Access);
+            var data = loaded.Value!;
+            if (data.Membership.UserStatusId is not (0 or 1)) return new(OrganizationAccess.Conflict);
+            if (string.IsNullOrEmpty(edit.Version) || edit.LocationRoles == null ||
+                edit.UserStatusId is not (0 or 1) || edit.StartDate > edit.EndDate ||
+                !ValidOrganizationRole(edit.OrganizationRole) ||
+                edit.LocationRoles.Any(x => x == null || string.IsNullOrEmpty(x.LocationSqid) || !ValidLocationRole(x.RoleName)) ||
+                edit.LocationRoles.Select(x => x.LocationSqid).Distinct(StringComparer.Ordinal).Count() != edit.LocationRoles.Count)
+                return new(OrganizationAccess.Invalid);
+            if (!string.Equals(edit.Version, MembershipVersion(data), StringComparison.Ordinal))
+                return new(OrganizationAccess.Conflict);
+            var locations = data.Locations.ToDictionary(x => x.LocationSqid!, StringComparer.Ordinal);
+            if (edit.LocationRoles.Any(x => !locations.ContainsKey(x.LocationSqid)))
+                return new(OrganizationAccess.Invalid);
+            if (!await PreservesAdminCoverageAsync(scope, data, edit))
+                return new(OrganizationAccess.Conflict);
+
+            data.Membership.UserStatusId = edit.UserStatusId;
+            data.Membership.StartDate = edit.StartDate;
+            data.Membership.EndDate = edit.EndDate;
+            data.Membership.ModifiedBy = scope.Actor.UserInformationSqid;
+            data.Membership.ModifiedDate = DateTime.UtcNow;
+            scope.Db.OrganizationUserRoles.RemoveRange(data.Roles);
+            var newRoles = new List<OrganizationUserRole>();
+            if (edit.OrganizationRole != null)
+                newRoles.Add(new OrganizationUserRole { OrganizationUserId = data.Membership.OrganizationUsersId,
+                    OrganizationWide = true, RoleName = edit.OrganizationRole });
+            newRoles.AddRange(edit.LocationRoles.Select(x => new OrganizationUserRole
+            {
+                OrganizationUserId = data.Membership.OrganizationUsersId, LocationId = locations[x.LocationSqid].LocationId,
+                OrganizationWide = false, RoleName = x.RoleName
+            }));
+            scope.Db.OrganizationUserRoles.AddRange(newRoles);
+            await scope.Db.SaveChangesAsync();
+            return new(OrganizationAccess.Success, DescribeMembership(new MembershipData(data.Membership, newRoles, data.Locations)));
+        });
+
+    private static async Task<bool> PreservesAdminCoverageAsync(Scope scope, MembershipData data, MembershipEdit edit)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).DayNumber;
+        var old = data.Membership;
+        if (old.UserStatusId != AuthorizationRecords.UserStatus.Approved.Id ||
+            old.UserInformation.CurrentStatusId != Statuses.DataStatus.Active.Id ||
+            !data.Roles.Any(x => x.OrganizationWide && x.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name))
+            return true;
+        var start = Math.Max(today, old.StartDate?.DayNumber ?? today);
+        var end = old.EndDate?.DayNumber ?? DateOnly.MaxValue.DayNumber;
+        if (start > end) return true;
+
+        var others = await (from membership in scope.Db.OrganizationUsers
+            join role in scope.Db.OrganizationUserRoles on membership.OrganizationUsersId equals role.OrganizationUserId
+            where membership.OrganizationId == scope.Organization.OrganizationId &&
+                membership.OrganizationUsersId != old.OrganizationUsersId &&
+                membership.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
+                membership.UserInformation.CurrentStatusId == Statuses.DataStatus.Active.Id &&
+                role.OrganizationWide && role.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name
+            select new { membership.StartDate, membership.EndDate, role.RoleName }).ToListAsync();
+        var intervals = others.Where(x => x.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name)
+            .Select(x => (Start: x.StartDate?.DayNumber ?? 0,
+            End: x.EndDate?.DayNumber ?? DateOnly.MaxValue.DayNumber)).ToList();
+        if (edit.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
+            edit.OrganizationRole == AuthorizationRecords.Roles.OrganizationAdmin.Name)
+            intervals.Add((edit.StartDate?.DayNumber ?? 0, edit.EndDate?.DayNumber ?? DateOnly.MaxValue.DayNumber));
+
+        var next = start;
+        foreach (var interval in intervals.OrderBy(x => x.Start))
+        {
+            if (interval.End < next) continue;
+            if (interval.Start > next) return false;
+            if (interval.End >= end) return true;
+            next = interval.End + 1;
+        }
+        return false;
+    }
 
     public Task<FacilityResult<List<OrganizationInvitationSummary>>> ListInvitationsAsync(string orgSqid) =>
         ExecuteAdminAsync<List<OrganizationInvitationSummary>>(orgSqid, async scope =>
