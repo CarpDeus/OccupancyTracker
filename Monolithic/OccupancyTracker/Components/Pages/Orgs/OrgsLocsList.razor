@@ -1,11 +1,9 @@
 ﻿@page "/orgs/{orgSqid}/locations"
 
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject OrganizationApiClient OrganizationApi
-@inject ILocationService locationService
+@inject FacilityApiClient FacilityApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject IOccAuthorizationService occAuthorizationService
 @inject NavigationManager NavigatorService
 
 @attribute [Authorize]
@@ -67,16 +65,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
-        {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-        }
         try
         {
             organization = await OrganizationApi.GetAsync(orgSqid);
             pageTitle = $"Locations for {organization.OrganizationName}";
-            locations = await locationService.GetListAsync(userInformation,organization.OrganizationSqid, "");
+            locations = await FacilityApi.ListLocationsAsync(organization.OrganizationSqid!);
             
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)

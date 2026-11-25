@@ -1,17 +1,11 @@
 ﻿@implements IAsyncDisposable
-@using System.Data.Common
 @using OccupancyTracker.DTO
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject OccupancyTracker.IService.IOrganizationService organizationService
-@inject OccupancyTracker.IService.ILocationService locationService
-@inject OccupancyTracker.IService.IEntranceService entranceService
+@inject FacilityApiClient FacilityApi
 @inject TrackerApiClient TrackerApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
 
-@using Microsoft.EntityFrameworkCore
 @using OccupancyTracker.Models
-@inject MudBlazor.ISnackbar Snackbar
 @inject NavigationManager Navigation
 @inject ILogger<LocationOccupancyStatus> Logger
 @using OccupancyTracker.DTO
@@ -29,6 +23,8 @@
 
 
 @code {
+    [Parameter]
+    public string OrganizationSqid { get; set; }
     [Parameter]
     public string LocationSqid { get; set; }
     [Parameter]
@@ -70,7 +66,7 @@
         }
         else if (!string.IsNullOrEmpty(locationSqid))
         {
-            var locationStats = await locationService.GetLocationOccupancyStats(LocationSqid);
+            var locationStats = await FacilityApi.GetLocationAsync(OrganizationSqid, locationSqid, cancellation.Token);
             maxOccupancy = locationStats.MaxOccupancy;
             occupancyThresholdWarning = locationStats.OccupancyThresholdWarning;
             currentOccupancy = locationStats.CurrentOccupancy;
@@ -109,7 +105,7 @@
                 });
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-        catch (Exception ex) when (ex is DbException or HttpRequestException)
+        catch (HttpRequestException ex)
         {
             Logger.LogError(ex, "Unable to refresh occupancy for location {LocationSqid}", LocationSqid);
             await InvokeAsync(() => Snackbar.Add("Unable to refresh occupancy.", Severity.Error));

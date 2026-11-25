@@ -4,7 +4,7 @@
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject OrganizationApiClient OrganizationApi
 @inject ProfileApiClient ProfileApi
-@inject OccupancyTracker.IService.ILocationService locationService
+@inject FacilityApiClient FacilityApi
 @inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
 @inject NavigationManager NavigatorService
 @inject MudBlazor.ISnackbar Snackbar
@@ -174,9 +174,9 @@
     {
         try
         {
-            locations = await locationService.GetListAsync(userInformation,organizationSqid);
+            locations = await FacilityApi.ListLocationsAsync(organizationSqid);
         }
-        catch (System.Security.SecurityException se)
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             NavigatorService.NavigateTo("/NoAccess");
         }

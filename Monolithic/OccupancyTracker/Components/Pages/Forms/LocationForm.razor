@@ -1,11 +1,9 @@
-﻿@inject OccupancyTracker.IService.IOrganizationService organizationService
-@inject OccupancyTracker.IService.ILocationService locationService
-@inject IOccAuthorizationService occAuthorizationService
+﻿@inject FacilityApiClient FacilityApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject NavigationManager NavigatorService
 
 
-<MudForm @ref="form" Model="location" @bind-ReadOnly="@readOnly" >
+<MudForm @ref="form" Model="location" @bind-ReadOnly="@readOnly" Validation="@(validationRules.ValidateValue)" ValidationDelay="0">
     <MudTextField  ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="location.LocationName" Label="Location Name" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Required="true" RequiredError="Location Name is required"></MudTextField>
     <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="location.LocationDescription" Label="Location Description" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Lines="numberDescriptionLines"></MudTextField>
     <hr />
@@ -50,8 +48,10 @@
     [Parameter] public UserInformation userInformation { get; set; }
     [Parameter] public bool readOnly { get; set; }
     [Parameter] public bool userCanEdit { get; set; }
+    [Parameter] public EventCallback<Location> OnLocationChanged { get; set; }
 
     private int numberDescriptionLines = 1;
+    private LocationValidator validationRules = new();
 
     private MudForm form;
 
@@ -71,38 +71,42 @@
         numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
 
     }
-    private async void Cancel()
+    private async Task Cancel()
     {
-        if (location.LocationId == 0)
-        { location = new Location(); }
-        else
-        { location = await locationService.GetAsync(organization.OrganizationSqid, location.LocationSqid, userInformation);
+        try
+        {
+            if (location.LocationId == 0)
+                location = new Location();
+            else
+                location = await FacilityApi.GetLocationAsync(organization.OrganizationSqid!, location.LocationSqid!);
+            await OnLocationChanged.InvokeAsync(location);
             readOnly = true;
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to reload location: {ex.Message}", Severity.Error);
         }
         this.StateHasChanged();
     }
 
 
 
-    private async void Save()
+    private async Task Save()
     {
         await form.Validate();
         if (form.IsValid)
         {
             bool isNew = location.LocationId == 0;
 
-            if (isNew)
+            try
             {
-                location.CreatedBy = userInformation.UserInformationSqid;
-                location.OrganizationId = organization.OrganizationId;
-                location.CreatedDate = DateTime.Now;
+                location = await FacilityApi.SaveLocationAsync(organization.OrganizationSqid!, location);
             }
-            else
+            catch (HttpRequestException ex)
             {
-                location.ModifiedBy = userInformation.UserInformationSqid;
-                location.ModifiedDate = DateTime.Now;
+                Snackbar.Add($"Unable to save location: {ex.Message}", Severity.Error);
+                return;
             }
-            await locationService.SaveAsync(location, organization.OrganizationSqid, userInformation);
 
             string snackMessage = isNew ? "Location Created" : "Location Updated";
             Snackbar.Add(snackMessage, Severity.Success);
@@ -113,6 +117,7 @@
             }
             else
             {
+                await OnLocationChanged.InvokeAsync(location);
                 numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
                 this.StateHasChanged();
             }

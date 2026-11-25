@@ -77,6 +77,9 @@ namespace OccupancyTracker
             builder.Services.AddHttpClient<PublicContentApiClient>(client =>
                 client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<FacilityApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
             builder.Services.AddEnyimMemcached(builder.Configuration.GetSection("enyimMemcached"));
             //builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();

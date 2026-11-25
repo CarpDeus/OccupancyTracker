@@ -1,6 +1,7 @@
 ﻿@* @using OccupancyTracker.Components.Admin.Components *@
 @inject NavigationManager NavigatorService
-@inject OccupancyTracker.IService.ILocationService locationService
+@inject FacilityApiClient FacilityApi
+@inject MudBlazor.ISnackbar Snackbar
 
 <MudDataGrid T="Location" Items="@locations" SortMode="SortMode.Multiple" MultiSelection="false"
 FooterClass="d-none"
@@ -42,7 +43,7 @@ Dense="true" Striped="true" Bordered="true" Hover="true" >
         </MudStack>
                 <MudStack Row="true" >
                     @{
-                        <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus LocationSqid="@context.Item.LocationSqid" small="true" />
+                        <OccupancyTracker.Components.Pages.Components.LocationOccupancyStatus OrganizationSqid="@orgSqid" LocationSqid="@context.Item.LocationSqid" small="true" />
                     }
                 </MudStack>
     </CellTemplate>
@@ -74,9 +75,15 @@ Dense="true" Striped="true" Bordered="true" Hover="true" >
 
     private async Task InvokedChangeState((string[], int, int) args)
     {
-        Location changedLoc = await locationService.ChangeStatusAsync(args.Item1[0], args.Item1[1], args.Item2, args.Item3, userInformation);
-        if (changedLoc.CurrentStatus == args.Item3)
+        try
+        {
+            await FacilityApi.ChangeLocationStatusAsync(args.Item1[0], args.Item1[1], args.Item2, args.Item3);
             NavigatorService.Refresh(true);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to change location status: {ex.Message}", Severity.Error);
+        }
     }
 
 
