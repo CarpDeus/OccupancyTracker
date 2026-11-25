@@ -1,4 +1,4 @@
-﻿@inject IMarkdownTextService MarkdownTextService
+﻿@inject PublicContentApiClient PublicContentApi
 <MudMarkdown Value="@markdownText"></MudMarkdown>
 
 @code {
@@ -9,8 +9,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var markdown = await MarkdownTextService.GetAsync(PageName, TextIdentifier);
-        markdownText = markdown.MarkdownContent;
+        if (TextIdentifier != "body")
+            throw new InvalidOperationException("Only public page body content is available.");
+        markdownText = await PublicContentApi.GetAsync(PageName);
     }
 
 

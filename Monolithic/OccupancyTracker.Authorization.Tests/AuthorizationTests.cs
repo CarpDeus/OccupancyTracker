@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.IService;
@@ -120,6 +121,7 @@ public class AuthorizationTests
         var fixture = await Fixture.CreateAsync();
         using var rsa = RSA.Create(2048);
         var key = new RsaSecurityKey(rsa) { KeyId = "test-key" };
+        var userInfo = new UserInfoHandler();
         const string issuer = "https://issuer.example/";
         const string audience = "https://api.example/";
         using var app = new WebApplicationFactory<global::Program>().WithWebHostBuilder(builder =>
@@ -134,12 +136,18 @@ public class AuthorizationTests
                 }));
             builder.ConfigureServices(services =>
             {
+                foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) &&
+                    (d.ImplementationType == typeof(DatabaseInitializationService) ||
+                     d.ImplementationType == typeof(OccupancyLogProcessor) ||
+                     d.ImplementationType == typeof(OccupancyEmailProcessor))).ToList())
+                    services.Remove(descriptor);
                 services.RemoveAll<IDbContextFactory<OccupancyContext>>();
                 services.AddSingleton<IDbContextFactory<OccupancyContext>>(fixture.Factory);
                 services.RemoveAll<ISqidsEncoderFactory>();
                 services.AddSingleton<ISqidsEncoderFactory>(new TestSqids());
                 services.RemoveAll<IOccAuthorizationService>();
                 services.AddSingleton<IOccAuthorizationService>(fixture.Legacy);
+                services.AddHttpClient("auth0-userinfo").ConfigurePrimaryHttpMessageHandler(() => userInfo);
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
                     options.Configuration = new OpenIdConnectConfiguration { Issuer = issuer };
@@ -152,6 +160,20 @@ public class AuthorizationTests
             });
         });
         using var client = app.CreateClient();
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.MarkdownText.AddRange(
+                new MarkdownText { PageName = "privacy", TextIdentifier = "body", MarkdownContent = "Privacy" },
+                new MarkdownText { PageName = "", TextIdentifier = "body", MarkdownContent = "Fallback" },
+                new MarkdownText { PageName = "secret", TextIdentifier = "body", MarkdownContent = "Secret" },
+                new MarkdownText { PageName = "terms", TextIdentifier = "body", MarkdownContent = "Inactive", CurrentStatus = 1 });
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal("Privacy", await client.GetFromJsonAsync<string>("/api/public-content/privacy"));
+        Assert.Equal("Fallback", await client.GetFromJsonAsync<string>("/api/public-content/terms"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/public-content/secret")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/organizations")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/trackers/public-counter")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
 
@@ -160,6 +182,39 @@ public class AuthorizationTests
                 expires: expiration, signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        var listed = await client.GetFromJsonAsync<List<Organization>>("/api/organizations");
+        Assert.Single(listed!);
+        Assert.Equal("org:1", listed![0].OrganizationSqid);
+        userInfo.Subject = "auth0|bob";
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
+        userInfo.Subject = "auth0|alice";
+        var bootstrap = await client.PostAsync("/api/me/bootstrap", null);
+        Assert.Equal(HttpStatusCode.OK, bootstrap.StatusCode);
+        Assert.Equal("user:1", (await bootstrap.Content.ReadFromJsonAsync<UserInformation>())!.UserInformationSqid);
+        Assert.Equal("Bearer", userInfo.Authorization?.Scheme);
+        var profile = await client.GetFromJsonAsync<UserInformation>("/api/me");
+        profile!.UserInformationSqid = "user:2";
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/me", profile)).StatusCode);
+        profile.UserInformationSqid = "user:1";
+        profile.IsSuperAdmin = true;
+        profile.UserInformationId = 2;
+        profile.FirstName = "Changed";
+        var savedProfile = await client.PutAsJsonAsync("/api/me", profile);
+        Assert.Equal(HttpStatusCode.OK, savedProfile.StatusCode);
+        var saved = await savedProfile.Content.ReadFromJsonAsync<UserInformation>();
+        Assert.Equal(1, saved!.UserInformationId);
+        Assert.False(saved.IsSuperAdmin);
+        Assert.Equal("Changed", saved.FirstName);
+        userInfo.Subject = "auth0|new";
+        userInfo.EmailVerified = false;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|new", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+            Assert.False(await context.UserSsoInformation.AnyAsync(x => x.Auth0Identifier == "auth0|new"));
+        userInfo.EmailVerified = true;
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
+        Assert.Equal("user:1", (await client.GetFromJsonAsync<UserInformation>("/api/me"))!.UserInformationSqid);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/trackers/private-counter/count", new { delta = 2 })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/trackers/private-counter/count", new { })).StatusCode);
@@ -167,6 +222,7 @@ public class AuthorizationTests
         await using (var context = fixture.Factory.CreateDbContext())
             Assert.Equal(1, await context.OccupancyLogs.CountAsync());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Empty((await client.GetFromJsonAsync<List<Organization>>("/api/organizations"))!);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", "wrong-audience", DateTime.UtcNow.AddMinutes(5)));
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
@@ -184,6 +240,33 @@ public class AuthorizationTests
             expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(wrongKey, SecurityAlgorithms.RsaSha256)));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", badSignature);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/trackers/private-counter")).StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationUsersId == 1);
+            membership.EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+            await context.SaveChangesAsync();
+        }
+        Assert.Empty((await client.GetFromJsonAsync<List<Organization>>("/api/organizations"))!);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationUsersId == 1);
+            membership.EndDate = null;
+            var organization = await context.Organizations.SingleAsync(x => x.OrganizationId == 1);
+            organization.CurrentStatus = 1;
+            await context.SaveChangesAsync();
+        }
+        Assert.Empty((await client.GetFromJsonAsync<List<Organization>>("/api/organizations"))!);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            context.OrganizationUserRoles.Add(new OrganizationUserRole
+            {
+                OrganizationUserId = 1, OrganizationWide = true, RoleName = "OrganizationAdmin"
+            });
+            await context.SaveChangesAsync();
+        }
+        Assert.Single((await client.GetFromJsonAsync<List<Organization>>("/api/organizations"))!);
     }
 
     [Fact]
@@ -321,6 +404,22 @@ public class AuthorizationTests
             Authorization = request.Headers.Authorization?.ToString();
             Content = request.Content == null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(Status) { Content = JsonContent.Create(new { entranceCounterSqid = "counter" }) };
+        }
+
+    }
+
+    private sealed class UserInfoHandler : HttpMessageHandler
+    {
+        public string Subject { get; set; } = "auth0|alice";
+        public bool EmailVerified { get; set; } = true;
+        public AuthenticationHeaderValue? Authorization { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Authorization = request.Headers.Authorization;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { sub = Subject, email = "alice@example.com", email_verified = EmailVerified })
+            });
         }
     }
 

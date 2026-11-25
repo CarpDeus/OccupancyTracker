@@ -1,10 +1,10 @@
 ﻿@page "/orgs"
 
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject IOrganizationService organizationService
+@inject OrganizationApiClient OrganizationApi
+@inject ProfileApiClient ProfileApi
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject IOccAuthorizationService occAuthorizationService
 @inject NavigationManager NavigatorService
 
 @attribute [Authorize]
@@ -61,8 +61,6 @@
 
 @code {
     [CascadingParameter]
-    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
-    [CascadingParameter]
     public UserInformation? userInformation { get; set; }
 
 
@@ -79,10 +77,9 @@
     {
         if (userInformation == null)
         {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
+            userInformation = await ProfileApi.GetAsync();
         }
-        organizations = await organizationService.GetListAsync(userInformation);
+        organizations = await OrganizationApi.GetListAsync();
         
 
     }
@@ -99,7 +96,7 @@
     {
         try
         {
-            organizations = await organizationService.GetListAsync(userInformation);
+            organizations = await OrganizationApi.GetListAsync();
             StateHasChanged();
         }
         catch (System.Security.SecurityException se)

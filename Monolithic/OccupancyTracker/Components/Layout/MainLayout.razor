@@ -1,7 +1,7 @@
 ﻿@inherits LayoutComponentBase
 @using Microsoft.AspNetCore.WebUtilities
 @inject IHostEnvironment HostEnvironment
-@inject IOccAuthorizationService occAuthorizationService
+@inject ProfileApiClient ProfileApi
 @inject NavigationManager NavigatorService
 
 <MudThemingProvider />
@@ -22,7 +22,7 @@
         </MudGrid>
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2" >
-        <NavMenu />
+        <NavMenu IsSuperAdmin="@(userInformation?.IsSuperAdmin == true)" />
     </MudDrawer>
     <MudMainContent>
         @Body
@@ -59,7 +59,7 @@
     {
         _drawerOpen = !_drawerOpen;
     }
-    protected override async void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
@@ -70,12 +70,12 @@
                 {
                     handledRedirection = true;
                 }
-                userInformation = await occAuthorizationService.GetFromStateAsync(state);
+                userInformation = await ProfileApi.GetAsync();
 
                 var query = QueryHelpers.ParseQuery(NavigatorService.ToAbsoluteUri(NavigatorService.Uri).Query);
                 var returnUri = query.TryGetValue("returnUrl", out var value) ? value.ToString() : null;
                 loggedInUserEMail = userInformation.HasCompletedRegistration ? $"{userInformation.FirstName} {userInformation.LastName}" : userInformation.EmailAddress;
-                if (!handledRedirection && (!occAuthorizationService.HasCompletedRegistration(userInformation) || !userInformation.HasCompletedRegistration))
+                if (!handledRedirection && !userInformation.HasCompletedRegistration)
                 {
                     if (!new Uri(NavigationManager.Uri).AbsolutePath.StartsWith("/profile", StringComparison.OrdinalIgnoreCase))
                     {
@@ -92,9 +92,10 @@
                         NavigatorService.NavigateTo(returnUri!);
                     }
                 }
+                StateHasChanged();
             }
         }
-        base.OnAfterRender(firstRender);
+        await base.OnAfterRenderAsync(firstRender);
     }
 
     protected override async Task OnInitializedAsync()

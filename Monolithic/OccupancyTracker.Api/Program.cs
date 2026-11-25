@@ -29,6 +29,14 @@ builder.Services.AddSingleton<ISqidsEncoderFactory, SqidsEncoderFactory>();
 builder.Services.AddSingleton<IOccAuthorizationService, OccAuthorizationService>();
 builder.Services.AddScoped<RequestAuthorizationService>();
 builder.Services.AddScoped<TrackerOperations>();
+builder.Services.AddScoped<IdentityBootstrap>();
+builder.Services.AddHttpClient("auth0-userinfo")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddTransient<OccupancyDbInitializer>();
+builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
+builder.Services.AddHostedService<DatabaseInitializationService>();
+builder.Services.AddHostedService<OccupancyLogProcessor>();
+builder.Services.AddHostedService<OccupancyEmailProcessor>();
 
 var app = builder.Build();
 _ = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>()
@@ -39,6 +47,70 @@ app.UseHttpsRedirection();
 app.UseEnyimMemcached();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapGet("/api/public-content/{page}", async (string page, IDbContextFactory<OccupancyContext> contexts) =>
+{
+    if (page is not ("privacy" or "terms")) return Results.NotFound();
+    await using var context = await contexts.CreateDbContextAsync();
+    var content = await context.MarkdownText.AsNoTracking()
+        .Where(x => x.PageName == page && x.TextIdentifier == "body" && x.CurrentStatus == Statuses.DataStatus.Active.Id)
+        .Select(x => x.MarkdownContent).FirstOrDefaultAsync();
+    content ??= await context.MarkdownText.AsNoTracking()
+        .Where(x => x.PageName == "" && x.TextIdentifier == "body" && x.CurrentStatus == Statuses.DataStatus.Active.Id)
+        .Select(x => x.MarkdownContent).FirstOrDefaultAsync();
+    return content == null ? Results.NotFound() : Results.Ok(content);
+});
+
+app.MapPost("/api/me/bootstrap", async (HttpContext context, IdentityBootstrap identity, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await identity.ResolveAsync(context, cancellationToken)); }
+    catch (SecurityException) { return Results.Forbid(); }
+}).RequireAuthorization();
+
+app.MapGet("/api/me", async (RequestAuthorizationService authorization) =>
+{
+    try { return Results.Ok(await authorization.GetCurrentUserAsync()); }
+    catch (SecurityException) { return Results.Forbid(); }
+}).RequireAuthorization();
+
+app.MapPut("/api/me", async (UserInformation edited, RequestAuthorizationService requestAuthorization, IOccAuthorizationService authorization) =>
+{
+    try
+    {
+        var actor = await requestAuthorization.GetCurrentUserAsync();
+        if (actor == null || edited.UserInformationSqid != actor.UserInformationSqid)
+            return Results.Forbid();
+        if (edited.ContactAddress == null || edited.ContactPhoneNumber == null)
+            return Results.BadRequest("Address and phone are required.");
+        return Results.Ok(await authorization.SaveUserAsync(edited, actor.UserInformationSqid!));
+    }
+    catch (SecurityException) { return Results.Forbid(); }
+}).RequireAuthorization();
+
+app.MapGet("/api/organizations", async (RequestAuthorizationService requestAuthorization,
+    IOccAuthorizationService authorization, IDbContextFactory<OccupancyContext> contexts) =>
+{
+    try
+    {
+        var actor = await requestAuthorization.GetCurrentUserAsync();
+        if (actor == null) return Results.Forbid();
+        await using var context = await contexts.CreateDbContextAsync();
+        if (actor.IsSuperAdmin)
+            return Results.Ok(await context.Organizations.AsNoTracking().ToListAsync());
+        var roles = await authorization.GetUserRolesFilteredAsync(actor.UserInformationSqid!);
+        var visible = roles.Select(x => x.OrganizationSqid).Distinct()
+            .Where(id => !string.IsNullOrEmpty(ResourceAuthorization.OrganizationRole(roles, id, false))).ToList();
+        var administrators = visible.Where(id => ResourceAuthorization.OrganizationRole(roles, id, false) ==
+            AuthorizationRecords.Roles.OrganizationAdmin.Name).ToList();
+        var organizations = await context.Organizations.AsNoTracking()
+            .Where(x => x.OrganizationSqid != null &&
+                ((x.CurrentStatus == 0 && visible.Contains(x.OrganizationSqid)) ||
+                 (x.CurrentStatus == 1 && administrators.Contains(x.OrganizationSqid))))
+            .ToListAsync();
+        return Results.Ok(organizations);
+    }
+    catch (SecurityException) { return Results.Forbid(); }
+}).RequireAuthorization();
 
 app.MapGet("/api/trackers/{counterSqid}", async (string counterSqid, TrackerOperations tracker) =>
     await ExecuteAsync(() => tracker.ReadAsync(counterSqid)));

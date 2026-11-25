@@ -12,6 +12,7 @@
 @inject IDialogService DialogService
 @inject MudBlazor.ISnackbar Snackbar
 @inject IOrganizationUserService organizationUserService
+@inject ProfileApiClient ProfileApi
 <PageTitle>Your Information</PageTitle>
 
 <MudForm @ref="@form"  Model="@editedUser" @bind-ReadOnly="@readOnly" >
@@ -117,7 +118,9 @@
 
     private async Task<Task> DiscardEdit()
     {
-        editedUser = await occAuthorizationService.GetAsync(editedUser.UserInformationSqid);
+        editedUser = editedUser.UserInformationSqid == userInformation?.UserInformationSqid
+            ? await ProfileApi.GetAsync()
+            : await occAuthorizationService.GetAsync(editedUser.UserInformationSqid);
         readOnly = true;
         return Task.CompletedTask;
     }
@@ -127,7 +130,9 @@
         await form.Validate();
         if (form.IsValid)
         {
-            var saved = await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
+            var saved = editedUser.UserInformationSqid == userInformation.UserInformationSqid
+                ? await ProfileApi.SaveAsync(editedUser)
+                : await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
             Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
             readOnly = true;
             if (saved.HasCompletedRegistration && LocalRedirect.IsSafe(ReturnUrl))
@@ -141,8 +146,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthenticationStateTask;
-        userInformation = await occAuthorizationService.GetFromStateAsync(state);
+        userInformation = await ProfileApi.GetAsync();
         canCreateOrganization =( !userInformation.BelongsToOrganization || userInformation.IsSuperAdmin);
         if (!string.IsNullOrEmpty(sqid))
         {
@@ -153,7 +157,9 @@
             }
             else
             {
-                editedUser = await occAuthorizationService.GetAsync(sqid);
+                editedUser = sqid == userInformation.UserInformationSqid
+                    ? userInformation
+                    : await occAuthorizationService.GetAsync(sqid);
             }
         }
         else editedUser = userInformation;

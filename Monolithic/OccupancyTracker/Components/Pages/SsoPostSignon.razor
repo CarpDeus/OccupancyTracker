@@ -1,7 +1,7 @@
 @page "/sso-post-signon"
 @layout Layout.EmptyLayout
 @using Microsoft.AspNetCore.WebUtilities
-@inject IOccAuthorizationService Authorization
+@inject ProfileApiClient ProfileApi
 @inject NavigationManager Navigation
 
 @code {
@@ -10,17 +10,17 @@
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateTask;
-        var user = await Authorization.GetFromStateAsync(state);
-        if (user == null)
+        if (state.User.Identity?.IsAuthenticated != true)
         {
             Navigation.NavigateTo("/Account/Login", forceLoad: true);
             return;
         }
+        var user = await ProfileApi.BootstrapAsync();
 
         var query = QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
         var returnUrl = query.TryGetValue("returnUrl", out var value) ? value.ToString() : "/";
         if (!LocalRedirect.IsSafe(returnUrl)) returnUrl = "/";
-        if (!Authorization.HasCompletedRegistration(user))
+        if (!user.HasCompletedRegistration)
             Navigation.NavigateTo($"/profile/edit?returnUrl={Uri.EscapeDataString(returnUrl)}");
         else
             Navigation.NavigateTo(returnUrl);
