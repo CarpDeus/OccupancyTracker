@@ -1,7 +1,7 @@
 ﻿@page "/orgs/{orgSqid}/locations/{locationSqid}/entrances"
 
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject IOrganizationService organizationService
+@inject OrganizationApiClient OrganizationApi
 @inject ILocationService locationService
 @inject IEntranceService entranceService
 @inject MudBlazor.ISnackbar Snackbar
@@ -71,12 +71,16 @@
         }
         try
         {
-        organization =await organizationService.GetAsync(orgSqid, userInformation);
+        organization = await OrganizationApi.GetAsync(orgSqid);
         location = await locationService.GetAsync(organization.OrganizationSqid, locationSqid, userInformation);
         if (!string.IsNullOrEmpty(locationSqid))
                 entrances = await entranceService.GetListAsync(userInformation,organization.OrganizationSqid, location.LocationSqid);
         pageTitle = $"Entrances for {organization.OrganizationName} - {location.LocationName}";
         
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
         }
         catch (System.Security.SecurityException se)
         {

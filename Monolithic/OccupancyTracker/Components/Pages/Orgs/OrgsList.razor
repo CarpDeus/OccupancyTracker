@@ -1,6 +1,5 @@
 ﻿@page "/orgs"
 
-@inject IOrganizationService organizationService
 @inject OrganizationApiClient OrganizationApi
 @inject ProfileApiClient ProfileApi
 @inject MudBlazor.ISnackbar Snackbar
@@ -75,10 +74,7 @@
     
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
-        {
-            userInformation = await ProfileApi.GetAsync();
-        }
+        userInformation = await ProfileApi.GetAsync();
         organizations = await OrganizationApi.GetListAsync();
         
 
@@ -87,9 +83,15 @@
 
     private async Task InvokedChangeState((string[], int, int) args)
     {
-        Organization changedOrg = await organizationService.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3, userInformation);
-        if (changedOrg.CurrentStatus == args.Item3)
+        try
+        {
+            await OrganizationApi.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3);
             NavigatorService.Refresh(true);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to change organization status: {ex.Message}", Severity.Error);
+        }
     }
 
     private async Task GetProfile()

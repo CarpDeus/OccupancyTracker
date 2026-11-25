@@ -1,4 +1,4 @@
-﻿@inject OccupancyTracker.IService.IOrganizationService organizationService
+﻿@inject OrganizationApiClient OrganizationApi
 @inject IOccAuthorizationService occAuthorizationService
 @inject MudBlazor.ISnackbar Snackbar
 @inject NavigationManager NavigatorService
@@ -36,6 +36,7 @@
     [Parameter] public UserInformation userInformation { get; set; }
     [Parameter] public bool readOnly { get; set; }
     [Parameter] public bool userCanEdit { get; set; }
+    [Parameter] public EventCallback<Organization> OnOrganizationChanged { get; set; }
 
     private int numberDescriptionLines = 1;
     private OrganizationValidator validationRules = new OrganizationValidator();
@@ -51,14 +52,6 @@
         this.StateHasChanged();
     }
 
-    private async Task InvokedChangeState((string[], int, int) args)
-    {
-        Organization changedOrg = await organizationService.ChangeStatusAsync(args.Item1[0], args.Item2, args.Item3, userInformation);
-        if ( changedOrg.CurrentStatus == args.Item3)
-            NavigatorService.Refresh(true);
-    }
-
-
     protected override async Task OnInitializedAsync()
     {
         if (organization.OrganizationId==0)
@@ -70,19 +63,28 @@
 
 
     }
-    private async void Cancel()
+    private async Task Cancel()
     {
-        if (organization.OrganizationId == 0)
-        { organization = new Organization(); }
-        else
-        { organization = await organizationService.GetAsync(organization.OrganizationSqid, userInformation); }
+        try
+        {
+            if (organization.OrganizationId == 0)
+                organization = new Organization();
+            else
+                organization = await OrganizationApi.GetAsync(organization.OrganizationSqid!);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to reload organization: {ex.Message}", Severity.Error);
+            return;
+        }
+        await OnOrganizationChanged.InvokeAsync(organization);
         readOnly = true;
         this.StateHasChanged();
     }
 
 
 
-    private async void Save()
+    private async Task Save()
     {
 
         await form.Validate();
@@ -91,17 +93,15 @@
 
             bool isNew = organization.OrganizationId == 0;
 
-            if (isNew)
+            try
             {
-                organization.CreatedBy = userInformation.UserInformationSqid;
-                organization.CreatedDate = DateTime.Now;
+                organization = await OrganizationApi.SaveAsync(organization);
             }
-            else
+            catch (HttpRequestException ex)
             {
-                organization.ModifiedBy = userInformation.UserInformationSqid;
-                organization.ModifiedDate = DateTime.Now;
+                Snackbar.Add($"Unable to save organization: {ex.Message}", Severity.Error);
+                return;
             }
-            await organizationService.SaveAsync(organization, userInformation);
 
             string snackMessage = isNew ? "Organization Created" : "Organization Updated";
             Snackbar.Add(snackMessage, Severity.Success);
@@ -114,6 +114,7 @@
             else
             {
                 numberDescriptionLines = organization.OrganizationDescription.Length > 100 ? 5 : 1;
+                await OnOrganizationChanged.InvokeAsync(organization);
                 this.StateHasChanged();
             }
         }

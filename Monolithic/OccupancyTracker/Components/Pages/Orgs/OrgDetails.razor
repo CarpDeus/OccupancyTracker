@@ -1,7 +1,9 @@
 ﻿@page "/orgs/{orgSqid}"
+@attribute [Authorize]
 @inject IOccAuthorizationService occAuthorizationService
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OrganizationApiClient OrganizationApi
+@inject ProfileApiClient ProfileApi
 @inject OccupancyTracker.IService.ILocationService locationService
 @inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
 @inject NavigationManager NavigatorService
@@ -12,7 +14,7 @@
 <MudBreadcrumbs Items="_items"></MudBreadcrumbs>
 <div hidden="@hidden">
     <MudText Typo="Typo.h6">@pageTitle</MudText>
-    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @ref="tabs" >
+    <MudTabs Elevation="1" Rounded="true" PanelClass="pa-6" @bind-ActivePanelIndex="activePanelIndex" >
 
         <MudTabPanel Text="Location List" Disabled="disableLocationList" ID="@("pn_Locations")">
             <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="LocationsNew" StartIcon="@Icons.Material.Filled.AddLocation">Add Location</MudButton>
@@ -24,7 +26,7 @@
             </div>
         </MudTabPanel>
         <MudTabPanel Text="Organization Details" ID="@("pn_Details")">
-            <OrganizationForm organization="@organization" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit" />
+            <OrganizationForm organization="@organization" userInformation="@userInformation" readOnly="@readOnlyForm" userCanEdit="@userCanEdit" OnOrganizationChanged="OrganizationChanged" />
         </MudTabPanel>
         <MudTabPanel Text="Organization Users" Disabled="@disableUserList">
             <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="InviteUser" StartIcon="@Icons.Material.Filled.InsertInvitation">Invite User</MudButton>
@@ -80,7 +82,7 @@
     private bool hideLocationList = false;
     private bool hideUsersList = true;
     private bool hideInvitedUsersList = true;
-    private MudTabs tabs;
+    private int activePanelIndex;
     private List<OrganizationUser> orgUsers;
     private List<OrganizationInvitationCodes> orgInvitedUsers;
 
@@ -90,11 +92,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (userInformation == null)
+        userInformation = await ProfileApi.GetAsync();
+        if (!userInformation.HasCompletedRegistration)
         {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-            if (!userInformation.HasCompletedRegistration) NavigatorService.NavigateTo("/profile/edit");
+            NavigatorService.NavigateTo("/profile/edit");
+            return;
         }
         if (orgSqid.ToLowerInvariant() == "new")
         {
@@ -117,26 +119,21 @@
             organizationSqid = orgSqid;
             try
             {
-                organization = await organizationService.GetAsync(organizationSqid, userInformation);
-                if(organization.CurrentStatus!=0) // If organization not active, only viewable by admins
-                {
-                    if(!(await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid,organizationSqid,true)))
-                    {
-                        NavigatorService.NavigateTo("/Error");
-                    }
-                }
+                organization = await OrganizationApi.GetAsync(organizationSqid);
                 locationUri = $"/orgs/{orgSqid}/locations";
                 await GetLocations();
                 await GetUsers();
 
             }
-            catch(System.Security.SecurityException se)
+            catch(HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
                 NavigatorService.NavigateTo("/NoAccess");
+                return;
             }
             catch (Exception ex)
             {
                 NavigatorService.NavigateTo("/Error");
+                return;
             }
             pageTitle = "Organization Details for " + organization.OrganizationName;
         }
@@ -166,6 +163,13 @@
         await DialogService.ShowAsync<OrganizationUserInviteForm>("Invite User", parameters, options);
     }
 
+    private void OrganizationChanged(Organization updated)
+    {
+        organization = updated;
+        if (!string.IsNullOrEmpty(organization.OrganizationSqid))
+            pageTitle = "Organization Details for " + organization.OrganizationName;
+    }
+
     private async Task GetLocations()
     {
         try
@@ -184,7 +188,7 @@
     }
     private async Task GetUsers()
     { try{
-            if ((await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid, true)))
+            if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid, true))
             {
             orgUsers = await organizationUserService.GetUserListForOrganizationAsync(userInformation.UserInformationSqid, "", organizationSqid);
             orgInvitedUsers = await organizationUserService.GetInvitedUserListAsync(userInformation.UserInformationSqid, "", organizationSqid);
@@ -215,7 +219,7 @@
     {
         try
         {
-            organization = await organizationService.GetAsync(organizationSqid, userInformation, true);
+            organization = await OrganizationApi.GetAsync(organizationSqid);
             NavigatorService.Refresh(true);
         }
         catch (System.Security.SecurityException se)
@@ -247,7 +251,7 @@
             disableUserList = true;
             disableInviteUserList = true;
             disableLocationList = true;
-            tabs.ActivatePanel("pn_Details");
+            activePanelIndex = 1;
         }
         else
         {

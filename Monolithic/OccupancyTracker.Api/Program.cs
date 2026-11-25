@@ -1,6 +1,7 @@
 using System.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
@@ -29,6 +30,7 @@ builder.Services.AddSingleton<ISqidsEncoderFactory, SqidsEncoderFactory>();
 builder.Services.AddSingleton<IOccAuthorizationService, OccAuthorizationService>();
 builder.Services.AddScoped<RequestAuthorizationService>();
 builder.Services.AddScoped<TrackerOperations>();
+builder.Services.AddScoped<OrganizationOperations>();
 builder.Services.AddScoped<IdentityBootstrap>();
 builder.Services.AddHttpClient("auth0-userinfo")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -112,12 +114,38 @@ app.MapGet("/api/organizations", async (RequestAuthorizationService requestAutho
     catch (SecurityException) { return Results.Forbid(); }
 }).RequireAuthorization();
 
+app.MapGet("/api/organizations/{sqid}", async (string sqid, OrganizationOperations organizations) =>
+    await ExecuteOrganizationAsync(() => organizations.ReadAsync(sqid))).RequireAuthorization();
+app.MapPost("/api/organizations", async (OrganizationEdit edit, OrganizationOperations organizations) =>
+    await ExecuteOrganizationAsync(() => organizations.CreateAsync(edit))).RequireAuthorization();
+app.MapPut("/api/organizations/{sqid}", async (string sqid, OrganizationEdit edit, OrganizationOperations organizations) =>
+    await ExecuteOrganizationAsync(() => organizations.UpdateAsync(sqid, edit))).RequireAuthorization();
+app.MapPost("/api/organizations/{sqid}/status", async (string sqid, OrganizationStatusChange change, OrganizationOperations organizations) =>
+    await ExecuteOrganizationAsync(() => organizations.ChangeStatusAsync(sqid, change))).RequireAuthorization();
+
 app.MapGet("/api/trackers/{counterSqid}", async (string counterSqid, TrackerOperations tracker) =>
     await ExecuteAsync(() => tracker.ReadAsync(counterSqid)));
 app.MapPost("/api/trackers/{counterSqid}/count", async (string counterSqid, CounterChange change, TrackerOperations tracker) =>
     await ExecuteAsync(() => tracker.UpdateAsync(counterSqid, change.Delta)));
 
 app.Run();
+
+static async Task<IResult> ExecuteOrganizationAsync(Func<Task<OrganizationResult>> operation)
+{
+    try
+    {
+        var result = await operation();
+        return result.Access switch
+        {
+            OrganizationAccess.Success => Results.Ok(result.Organization),
+            OrganizationAccess.NotFound => Results.NotFound(),
+            OrganizationAccess.Forbidden => Results.Forbid(),
+            OrganizationAccess.Invalid => Results.BadRequest("Invalid organization data or status transition."),
+            _ => Results.Conflict("The organization status has changed.")
+        };
+    }
+    catch (SecurityException) { return Results.Forbid(); }
+}
 
 static async Task<IResult> ExecuteAsync(Func<Task<TrackerResult>> operation)
 {

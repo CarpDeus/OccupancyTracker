@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -181,10 +182,21 @@ public class AuthorizationTests
             new JwtSecurityToken(issuer, tokenAudience, new[] { new Claim("sub", subject) },
                 expires: expiration, signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
 
+        var edit = new
+        {
+            organizationName = "Updated", organizationDescription = "Description",
+            organizationAddress = new { addressLine1 = "123 Main", city = "City", state = "State", postalCode = "12345", country = "Country" },
+            phoneNumber = new { countryCode = "1", number = "1234567" },
+            organizationId = 2, organizationSqid = "org:2", paidClient = true, currentStatus = 0, createdBy = "forged"
+        };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
         var listed = await client.GetFromJsonAsync<List<Organization>>("/api/organizations");
         Assert.Single(listed!);
         Assert.Equal("org:1", listed![0].OrganizationSqid);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/organizations/org:1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 0, toStatus = 1 })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/organizations/org:1", edit)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/organizations/missing")).StatusCode);
         userInfo.Subject = "auth0|bob";
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
         userInfo.Subject = "auth0|alice";
@@ -267,6 +279,59 @@ public class AuthorizationTests
             await context.SaveChangesAsync();
         }
         Assert.Single((await client.GetFromJsonAsync<List<Organization>>("/api/organizations"))!);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/organizations/org:2")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/organizations/org:1")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync("/api/organizations/org:2", edit)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/organizations/org:1", edit)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var updated = await context.Organizations.SingleAsync(x => x.OrganizationId == 1);
+            Assert.Equal("Updated", updated.OrganizationName);
+            Assert.False(updated.PaidClient);
+            Assert.Equal(1, updated.CurrentStatus);
+            Assert.NotEqual("forged", updated.CreatedBy);
+            Assert.Equal("user:1", updated.ModifiedBy);
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 0, toStatus = 1 })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 1, toStatus = 7 })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 1, toStatus = 2 })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 2, toStatus = 1 })).StatusCode);
+        var adminToken = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+            issuer, audience, new[] { new Claim("sub", "auth0|alice"),
+                new Claim("https://occupancy-tracker.secure-scalable.solutions/roles", "SuperAdmin") },
+            expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 2, toStatus = 1 })).StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/organizations", edit)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var bob = await context.UserInformation.SingleAsync(x => x.UserInformationId == 2);
+            bob.HasCompletedRegistration = true;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/organizations", new
+        {
+            organizationName = "", organizationDescription = "", organizationAddress = edit.organizationAddress, phoneNumber = edit.phoneNumber
+        })).StatusCode);
+        var createdResponse = await client.PostAsJsonAsync("/api/organizations", edit);
+        Assert.Equal(HttpStatusCode.OK, createdResponse.StatusCode);
+        var created = (await createdResponse.Content.ReadFromJsonAsync<Organization>())!;
+        Assert.NotEqual(2, created.OrganizationId);
+        Assert.False(created.PaidClient);
+        Assert.Equal(0, created.CurrentStatus);
+        Assert.Equal("user:2", created.CreatedBy);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/organizations/{created.OrganizationSqid}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/organizations", edit)).StatusCode);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var membership = await context.OrganizationUsers.SingleAsync(x => x.OrganizationId == created.OrganizationId);
+            Assert.Equal(2, membership.UserInformationId);
+            Assert.True(await context.OrganizationUserRoles.AnyAsync(x => x.OrganizationUserId == membership.OrganizationUsersId &&
+                x.OrganizationWide && x.RoleName == "OrganizationAdmin"));
+        }
     }
 
     [Fact]
@@ -287,6 +352,32 @@ public class AuthorizationTests
         Assert.Null(handler.Authorization);
         handler.Status = HttpStatusCode.NotFound;
         Assert.Null(await client.GetAsync("counter"));
+    }
+
+    [Fact]
+    public async Task OrganizationClientSendsOnlyEditableFieldsAndCurrentToken()
+    {
+        var handler = new TrackerHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
+        var tokens = new TokenProvider { AccessToken = "first-user" };
+        var client = new OrganizationApiClient(http, tokens);
+        await client.SaveAsync(new Organization
+        {
+            OrganizationId = 7, OrganizationSqid = "org:7", OrganizationName = "Name",
+            PaidClient = true, CurrentStatus = 2, CreatedBy = "forged"
+        });
+        Assert.Equal("Bearer first-user", handler.Authorization);
+        Assert.Equal(HttpMethod.Put, handler.Method);
+        using var body = JsonDocument.Parse(handler.Content!);
+        Assert.Equal("Name", body.RootElement.GetProperty("organizationName").GetString());
+        Assert.False(body.RootElement.TryGetProperty("paidClient", out _));
+        Assert.False(body.RootElement.TryGetProperty("currentStatus", out _));
+        Assert.False(body.RootElement.TryGetProperty("createdBy", out _));
+        tokens.AccessToken = "second-user";
+        handler.Status = HttpStatusCode.Forbidden;
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAsync("org:7"));
+        Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
+        Assert.Equal("Bearer second-user", handler.Authorization);
     }
 
     [Fact]
@@ -398,10 +489,12 @@ public class AuthorizationTests
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
         public string? Authorization { get; private set; }
         public string? Content { get; private set; }
+        public HttpMethod? Method { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Authorization = request.Headers.Authorization?.ToString();
+            Method = request.Method;
             Content = request.Content == null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(Status) { Content = JsonContent.Create(new { entranceCounterSqid = "counter" }) };
         }

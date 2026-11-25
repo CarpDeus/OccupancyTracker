@@ -9,7 +9,7 @@ So I decided to push out a monolithic Blazor server application, using [MudBlazo
 
 The solution is being split into `OccupancyTracker.Shared` (models and DTOs),
 `OccupancyTracker.Backend` (services, EF Core context and migrations),
-`OccupancyTracker.Api` (tracker, profile, organization-list and public-content endpoints), and `OccupancyTracker` (the MudBlazor
+`OccupancyTracker.Api` (tracker, profile, organization and public-content endpoints), and `OccupancyTracker` (the MudBlazor
 UI). The split is **not complete**: organization, location, user, and other UI
 features still call backend services directly.
 
@@ -75,6 +75,11 @@ verified profile. `GET /api/me` and `PUT /api/me` read and update only that
 account's editable profile fields; identity and privilege fields are ignored.
 `GET /api/organizations` lists organizations visible to the authenticated
 account using active, date-valid memberships and resource-scoped roles.
+Organization details, creation, editing and status transitions use authenticated
+`/api/organizations` endpoints. Only organization administrators can edit or
+change status; recovery of permanently deleted organizations requires a
+super-admin. New organizations require a completed profile and, except for
+super-admins, an account that does not already belong to an organization.
 `GET /api/public-content/{page}` serves the public `privacy` and `terms` pages.
 
 The remaining backend services accept caller-supplied identities and must not

@@ -5,7 +5,7 @@
 @inject IOccAuthorizationService occAuthorizationService
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject IDialogService DialogService
-@inject OccupancyTracker.IService.IOrganizationService organizationService
+@inject OrganizationApiClient OrganizationApi
 @inject OccupancyTracker.IService.ILocationService locationService
 @inject OccupancyTracker.IService.IEntranceService entranceService
 
@@ -191,9 +191,13 @@
     {
         try
         {
-            organization = await organizationService.GetAsync(orgSqid, userInformation);
+            organization = await OrganizationApi.GetAsync(orgSqid);
             SetBreadcrumbs();
             return true;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            NavigatorService.NavigateTo("/NoAccess");
         }
         catch (System.Security.SecurityException se)
         {
