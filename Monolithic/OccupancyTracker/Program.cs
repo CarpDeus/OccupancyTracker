@@ -1,6 +1,7 @@
 using Auth0.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 
@@ -30,6 +31,8 @@ namespace OccupancyTracker
             builder.Services.AddMudMarkdownServices();
 
             builder.Services.AddScoped<TokenProvider>();
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<IRequestAuthorizationService, RequestAuthorizationService>();
 
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddCascadingValue("userInformation", sp => new UserInformation());
@@ -39,6 +42,11 @@ namespace OccupancyTracker
                 options.Domain = builder.Configuration["Auth0:Domain"];
                 options.ClientId = builder.Configuration["Auth0:ClientId"];
                 options.Scope = "openid profile email address phone";
+            });
+            builder.Services.PostConfigure<OpenIdConnectOptions>(Auth0Constants.AuthenticationScheme, options =>
+            {
+                options.GetClaimsFromUserInfoEndpoint = true;
+                options.ClaimActions.MapUniqueJsonKey("email_verified", "email_verified");
             });
 
             builder.Services.AddHostedService<OccupancyLogProcessor>();

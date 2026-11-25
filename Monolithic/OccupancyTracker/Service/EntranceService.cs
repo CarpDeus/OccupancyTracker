@@ -54,7 +54,7 @@ namespace OccupancyTracker.Service
             }
             if (!await _authorizationService.IsLocAdminAsync(userInformationSqid, organizationSqid, locationSqid))
             {
-                _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, entranceSqid, "", $"User does not have access to the location containing entrance {entranceSqid}", $"You do not have access to the location containing entrance {entranceSqid}");
+                await _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, entranceSqid, "", $"User does not have access to the location containing entrance {entranceSqid}", $"You do not have access to the location containing entrance {entranceSqid}");
             }
             using (var _context = _contextFactory.CreateDbContext())
             {
@@ -119,7 +119,7 @@ namespace OccupancyTracker.Service
             {
                 if (!await _authorizationService.HasAccessToLocationAsync(userInformationSqid, locationSqid))
                 {
-                    _authorizationService.LogAccessExceptionAsync(userInformationSqid, "", locationSqid, "", "", $"User does not have access to the entrances for Location {locationSqid}", $"You do not have access to the entrances for Location {locationSqid}");
+                    await _authorizationService.LogAccessExceptionAsync(userInformationSqid, "", locationSqid, "", "", $"User does not have access to the entrances for Location {locationSqid}", $"You do not have access to the entrances for Location {locationSqid}");
                 }
                 ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, locationSqid);
                 bool isLocAdmin = await _authorizationService.IsLocAdminAsync(userInformationSqid, pos.OrganizationSqid, pos.LocationSqid);
@@ -159,7 +159,7 @@ namespace OccupancyTracker.Service
             string userInformationSqid = userInformation.UserInformationSqid;
             if (!await _authorizationService.HasAccessToLocationAsync(userInformationSqid, locationSqid))
             {
-                _authorizationService.LogAccessExceptionAsync(userInformationSqid, "", entranceSqid, locationSqid, "", $"User does not have access to the entrances for Location {locationSqid}", $"You do not have access to the entrances for Location {locationSqid}");
+                await _authorizationService.LogAccessExceptionAsync(userInformationSqid, "", locationSqid, entranceSqid, "", $"User does not have access to the entrances for Location {locationSqid}", $"You do not have access to the entrances for Location {locationSqid}");
             }
 
             string cacheKey = $"Entrance:{entranceSqid}";
@@ -232,7 +232,7 @@ namespace OccupancyTracker.Service
             string userInformationSqid = userInformation.UserInformationSqid;
             if (!await _authorizationService.IsLocAdminAsync(userInformationSqid, organizationSqid, locationSqid))
             {
-                _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, entrance.EntranceSqid, "", $"User does not have access to the location containing entrance {entrance.EntranceSqid}", $"You do not have access to the location containing entrance {entrance.EntranceSqid}");
+                await _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, entrance.EntranceSqid, "", $"User does not have access to the location containing entrance {entrance.EntranceSqid}", $"You do not have access to the location containing entrance {entrance.EntranceSqid}");
             }
             if (entrance.LocationId == 0)
             {

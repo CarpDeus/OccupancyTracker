@@ -10,3 +10,25 @@ So I decided to push out a monolithic Blazor server application, using [MudBlazo
 The solution also contains `OccupancyTracker.Shared`, a class library for the
 models and DTOs used by the existing application. The EF Core context and
 migrations remain in the monolithic application.
+
+### Authorization for an API
+
+`IRequestAuthorizationService` resolves the acting account from the authenticated
+HTTP principal's Auth0 subject, not a user ID supplied by the caller. Organization
+and location permissions come from active memberships and are scoped to the
+requested resource. A counter is usable anonymously only if its current,
+active counter does not require authentication; otherwise the actor must have
+access to its location.
+
+The host **must** validate access-token signatures, issuer, audience and expiry
+before calling this service. The super-admin role must be included in the
+validated token as `https://occupancy-tracker.secure-scalable.solutions/roles`.
+Never accept a principal, actor ID, or `IsSuperAdmin` value from an API request
+body. New SSO account links require an Auth0-verified email address; the web
+application requests the `email_verified` claim from Auth0's user-info endpoint.
+
+This is authorization infrastructure, not an API endpoint: the existing UI still
+uses the monolithic services. Those services accept caller-supplied identities
+and must not be exposed directly. Future API endpoints must use request
+authorization for every operation, enforce resource and field-level checks,
+and protect both tracker operations and SignalR subscriptions.

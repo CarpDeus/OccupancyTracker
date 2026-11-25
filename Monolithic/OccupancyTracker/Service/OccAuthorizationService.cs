@@ -46,14 +46,29 @@ namespace OccupancyTracker.Service
         /// <param name="emailAddress">The email address.</param>
         /// <param name="isSuperAdmin">if set to <c>true</c> [is super admin].</param>
         /// <returns>The user information.</returns>
-        private async Task<UserInformation> ResolveSsoAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool isSuperAdmin)
+        private async Task<UserInformation> ResolveSsoAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool emailVerified, bool isSuperAdmin)
         {
             using var _context = _contextFactory.CreateDbContext();
-            var sso = await _context.UserSsoInformation.FirstOrDefaultAsync(x => x.Auth0Identifier == auth0Identifier);
-            var userInformation = await _context.UserInformation.FirstOrDefaultAsync(x => x.EmailAddress == emailAddress);
+            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var sso = await _context.UserSsoInformation.SingleOrDefaultAsync(x => x.Auth0Identifier == auth0Identifier);
+            UserInformation? userInformation;
 
-            if (sso == null)
+            if (sso != null)
             {
+                if (sso.UserInformationId is not > 0 ||
+                    !string.Equals(sso.Auth0Identifier, auth0Identifier, StringComparison.Ordinal))
+                    throw new System.Security.SecurityException("The authenticated subject is not linked to an account.");
+                userInformation = await _context.UserInformation.SingleOrDefaultAsync(x => x.UserInformationId == sso.UserInformationId);
+                if (userInformation == null || userInformation.CurrentStatusId != Statuses.DataStatus.Active.Id)
+                    throw new System.Security.SecurityException("The authenticated account is unavailable.");
+            }
+            else
+            {
+                if (!emailVerified || string.IsNullOrWhiteSpace(emailAddress))
+                    throw new System.Security.SecurityException("A verified email address is required to link an account.");
+                userInformation = await _context.UserInformation.SingleOrDefaultAsync(x => x.EmailAddress == emailAddress);
+                if (userInformation != null && userInformation.CurrentStatusId != Statuses.DataStatus.Active.Id)
+                    throw new System.Security.SecurityException("The authenticated account is unavailable.");
                 sso = new UserSsoInformation
                 {
                     Auth0Identifier = auth0Identifier,
@@ -61,7 +76,7 @@ namespace OccupancyTracker.Service
                     Surname = surname,
                     Picture = picture,
                     EmailAddress = emailAddress,
-                    UserInformationId = userInformation?.UserInformationId ?? -1
+                    UserInformationId = userInformation?.UserInformationId
                 };
 
                 _context.UserSsoInformation.Add(sso);
@@ -103,35 +118,14 @@ namespace OccupancyTracker.Service
 
             sso.UserLastLoggedIn = DateTime.Now;
             userInformation.UserSsoInformationIdLastLoggedIn = sso.UserSsoInformationId;
-            userInformation.HasCompletedRegistration = HasUserCompletedProfile(
-                userInformation.ContactAddress.AddressLine1,
-                userInformation.ContactAddress.City,
-                userInformation.ContactAddress.State,
-                userInformation.ContactAddress.PostalCode,
-                userInformation.ContactAddress.State,
-                userInformation.ContactPhoneNumber.Number,
-                userInformation.ContactPhoneNumber.CountryCode,
-                userInformation.FirstName,
-                userInformation.LastName
-            );
+            userInformation.HasCompletedRegistration = HasCompletedRegistration(userInformation);
 
             _context.UserSsoInformation.Update(sso);
             _context.UserInformation.Update(userInformation);
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return userInformation;
-        }
-
-        /// <summary>
-        /// Determines whether the user has completed their profile.
-        /// </summary>
-        /// <param name="userFields">The user fields.</param>
-        /// <returns>
-        ///   <c>true</c> if the user has completed their profile; otherwise, <c>false</c>.
-        /// </returns>
-        private bool HasUserCompletedProfile(params string[] userFields)
-        {
-            return userFields.All(field => !string.IsNullOrEmpty(field));
         }
 
         /// <summary>
@@ -163,30 +157,24 @@ namespace OccupancyTracker.Service
         public async Task<UserInformation> SaveUserAsync(UserInformation userInformation, string updateUserInformationSqid)
         {
             if (string.IsNullOrEmpty(userInformation.UserInformationSqid))
+                throw new ArgumentException("A profile identifier is required.", nameof(userInformation));
+
+            var actor = await GetAsync(updateUserInformationSqid);
+            if (updateUserInformationSqid != userInformation.UserInformationSqid && !actor.IsSuperAdmin)
             {
-                userInformation.UserInformationSqid = _sqids.EncodeUserInformation(userInformation.UserInformationId);
+                throw new System.Security.SecurityException("Not authorized to edit this profile.");
             }
-
-            long modifiedBy = userInformation.UserInformationId;
-            if (updateUserInformationSqid != userInformation.UserInformationSqid)
-            {
-                var updateUser = await GetAsync(updateUserInformationSqid);
-                if (!updateUser.IsSuperAdmin)
-                {
-                    throw new Exception($"User {updateUserInformationSqid} is not authorized");
-                }
-                modifiedBy = updateUser.UserInformationId;
-            }
-
-            userInformation.HasCompletedRegistration = HasCompletedRegistration(userInformation);
-            userInformation.ModifiedBy = modifiedBy;
-            userInformation.ModifiedDate = DateTime.Now;
-
             using var _context = _contextFactory.CreateDbContext();
-            _context.UserInformation.Update(userInformation);
+            var target = await _context.UserInformation.SingleAsync(x => x.UserInformationSqid == userInformation.UserInformationSqid);
+            target.FirstName = userInformation.FirstName;
+            target.LastName = userInformation.LastName;
+            target.ContactAddress = userInformation.ContactAddress;
+            target.ContactPhoneNumber = userInformation.ContactPhoneNumber;
+            target.HasCompletedRegistration = HasCompletedRegistration(target);
+            target.ModifiedBy = actor.UserInformationId;
+            target.ModifiedDate = DateTime.Now;
             await _context.SaveChangesAsync();
-
-            return userInformation;
+            return target;
         }
 
         /// <summary>
@@ -216,12 +204,20 @@ namespace OccupancyTracker.Service
         /// <returns>The user information.</returns>
         public async Task<UserInformation?> GetFromStateAsync(AuthenticationState state)
         {
-            var claims = state.User.Claims.ToList();
-            var nameIdentifier = claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            if (state.User.Identity?.IsAuthenticated != true)
+                return null;
+            var claims = state.User.Identities.Where(identity => identity.IsAuthenticated)
+                .SelectMany(identity => identity.Claims).ToList();
+            var subjects = claims.Where(c => c.Type == ClaimTypes.NameIdentifier || c.Type == "sub")
+                .Select(c => c.Value).Distinct(StringComparer.Ordinal).ToList();
+            if (subjects.Count != 1 || string.IsNullOrWhiteSpace(subjects[0]))
+                throw new System.Security.SecurityException("Authenticated identity must have exactly one subject.");
+            var nameIdentifier = subjects[0];
             var givenName = claims.FirstOrDefault(c => c.Type == ClaimTypes.GivenName)?.Value ?? string.Empty;
             var surname = claims.FirstOrDefault(c => c.Type == ClaimTypes.Surname)?.Value ?? string.Empty;
             var picture = claims.FirstOrDefault(c => c.Type == "picture")?.Value ?? string.Empty;
             var emailAddress = claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value ?? string.Empty;
+            var emailVerified = claims.Any(c => c.Type == "email_verified" && string.Equals(c.Value, "true", StringComparison.OrdinalIgnoreCase));
             var isSuperAdmin = claims.Any(c => c.Type == "https://occupancy-tracker.secure-scalable.solutions/roles" && c.Value == "SuperAdmin");
 
             if (isSuperAdmin && !state.User.IsInRole("SuperAdmin"))
@@ -230,7 +226,7 @@ namespace OccupancyTracker.Service
                 claimsIdentity.AddClaim(new Claim(ClaimTypes.Role, "SuperAdmin"));
             }
 
-            return await ResolveSsoAsync(nameIdentifier, givenName, surname, picture, emailAddress, isSuperAdmin);
+            return await ResolveSsoAsync(nameIdentifier, givenName, surname, picture, emailAddress, emailVerified, isSuperAdmin);
         }
 
 
@@ -243,14 +239,20 @@ namespace OccupancyTracker.Service
         private async Task<List<CurrentUserRoleInformation>> GetUserRoleInformationAsync(string userInformationSqid, bool forceCacheRefresh = false)
         {
             using var _context = _contextFactory.CreateDbContext();
-            return await _context.OrganizationUserRoles
-                .Where(o => _context.OrganizationUsers.Any(x => x.UserInformationId == _sqids.DecodeUserInformation(userInformationSqid) && o.OrganizationUserId == x.OrganizationUsersId))
-                .Select(x => new CurrentUserRoleInformation
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var userId = _sqids.DecodeUserInformation(userInformationSqid);
+            return await (from role in _context.OrganizationUserRoles
+                join membership in _context.OrganizationUsers on role.OrganizationUserId equals membership.OrganizationUsersId
+                where membership.UserInformationId == userId &&
+                    membership.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
+                    (!membership.StartDate.HasValue || membership.StartDate <= today) &&
+                    (!membership.EndDate.HasValue || membership.EndDate >= today)
+                select new CurrentUserRoleInformation
                 {
-                    OrganizationSqid = _sqids.EncodeOrganizationId(_context.OrganizationUsers.FirstOrDefault(u => u.OrganizationUsersId == x.OrganizationUserId).OrganizationId),
-                    LocationSqid = x.Location.LocationSqid,
-                    OrganizationWide = x.OrganizationWide,
-                    RoleName = x.RoleName
+                    OrganizationSqid = _sqids.EncodeOrganizationId(membership.OrganizationId),
+                    LocationSqid = role.Location != null ? role.Location.LocationSqid : null,
+                    OrganizationWide = role.OrganizationWide,
+                    RoleName = role.RoleName
                 }).ToListAsync();
         }
 
@@ -276,14 +278,15 @@ namespace OccupancyTracker.Service
             }
 
             using var _context = _contextFactory.CreateDbContext();
-            var locOrgSqid = _sqids.EncodeOrganizationId(
-                await _context.Locations
-                    .Where(x => x.LocationSqid == locationSqid)
-                    .Select(x => x.OrganizationId)
-                    .FirstOrDefaultAsync()
-            );
-
-            return roles.Where(x => x.OrganizationSqid == locOrgSqid && x.OrganizationWide || x.LocationSqid == locationSqid).ToList();
+            var location = await _context.Locations
+                .Where(x => x.LocationSqid == locationSqid)
+                .Select(x => new { x.OrganizationId })
+                .SingleOrDefaultAsync();
+            if (location == null) return new List<CurrentUserRoleInformation>();
+            var locOrgSqid = _sqids.EncodeOrganizationId(location.OrganizationId);
+            if (!string.IsNullOrEmpty(organizationSqid) && organizationSqid != locOrgSqid)
+                return new List<CurrentUserRoleInformation>();
+            return roles.Where(x => x.OrganizationSqid == locOrgSqid && (x.OrganizationWide || x.LocationSqid == locationSqid)).ToList();
         }
 
         /// <summary>
@@ -297,25 +300,8 @@ namespace OccupancyTracker.Service
         public async Task<bool> HasAccessToOrganizationAsync(string userInformationSqid, string organizationSqid)
         {
             var user = await GetAsync(userInformationSqid);
-            return user.IsSuperAdmin || (await GetUserRoleInformationAsync(userInformationSqid)).Any(x => x.OrganizationSqid == organizationSqid);
-        }
-
-        /// <summary>
-        /// Gets the user location list asynchronously.
-        /// </summary>
-        /// <param name="userInformationSqid">The user information SQID.</param>
-        /// <param name="forceCacheRefresh">if set to <c>true</c> [force cache refresh].</param>
-        /// <returns>The list of user location SQIDs.</returns>
-        private async Task<List<string>> GetUserLocationListAsync(string userInformationSqid, bool forceCacheRefresh = false)
-        {
-            using var _context = _contextFactory.CreateDbContext();
-            return await _context.Organizations
-                .Where(o => _context.OrganizationUsers
-                    .Where(x => x.UserInformationId == _sqids.DecodeUserInformation(userInformationSqid))
-                    .Select(x => x.OrganizationId)
-                    .Contains(o.OrganizationId))
-                .Select(o => o.OrganizationSqid)
-                .ToListAsync();
+            return !string.IsNullOrEmpty(ResourceAuthorization.OrganizationRole(
+                await GetUserRoleInformationAsync(userInformationSqid), organizationSqid, user.IsSuperAdmin));
         }
 
         /// <summary>
@@ -328,11 +314,12 @@ namespace OccupancyTracker.Service
         /// </returns>
         public async Task<bool> HasAccessToLocationAsync(string userInformationSqid, string locationSqid)
         {
-            var pos = _sqids.DecodeSqids(null, locationSqid);
-            return (await GetAsync(userInformationSqid)).IsSuperAdmin ||
-                   await IsOrgAdminAsync(userInformationSqid, pos.OrganizationSqid) ||
-                     (await GetUserRoleInformationAsync(userInformationSqid)).Any(x => x.OrganizationWide && x.RoleName== AuthorizationRecords.Roles.User.Name) ||
-                   (await GetUserLocationListAsync(userInformationSqid, true)).Any(x => x.Equals(locationSqid));
+            using var context = _contextFactory.CreateDbContext();
+            var location = await context.Locations.Where(x => x.LocationSqid == locationSqid)
+                .Select(x => new { x.OrganizationId }).SingleOrDefaultAsync();
+            if (location == null) return false;
+            var organizationSqid = _sqids.EncodeOrganizationId(location.OrganizationId);
+            return !string.IsNullOrEmpty(await GetUserInformationRoleForLocationAsync(userInformationSqid, organizationSqid, locationSqid));
         }
 
 
@@ -345,18 +332,7 @@ namespace OccupancyTracker.Service
         public async Task<string> GetUserInformationRoleForOrganizationAsync(string userInformationSqid, string orgSqid)
         {
             var user = await GetAsync(userInformationSqid);
-            if (user.IsSuperAdmin) return AuthorizationRecords.Roles.SuperAdmin.Name;
-
-            if (!await HasAccessToOrganizationAsync(userInformationSqid, orgSqid)) return string.Empty;
-
-            var roles = (await GetUserRoleInformationAsync(userInformationSqid)).Where(x => x.OrganizationSqid == orgSqid).ToList();
-
-            if (!roles.Any()) return AuthorizationRecords.Roles.User.Name;
-
-            if (roles.Any(x => x.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name)) return AuthorizationRecords.Roles.OrganizationAdmin.Name;
-            if (roles.Any(x => x.RoleName == AuthorizationRecords.Roles.LocationAdmin.Name && x.OrganizationWide)) return AuthorizationRecords.Roles.LocationAdmin.Name;
-
-            return AuthorizationRecords.Roles.User.Name;
+            return ResourceAuthorization.OrganizationRole(await GetUserRoleInformationAsync(userInformationSqid), orgSqid, user.IsSuperAdmin);
         }
 
 
@@ -371,19 +347,12 @@ namespace OccupancyTracker.Service
         public async Task<string> GetUserInformationRoleForLocationAsync(string userInformationSqid, string orgSqid, string locationSqid, bool forceRefreshCache = false)
         {
             var user = await GetAsync(userInformationSqid);
-            if (user.IsSuperAdmin) return AuthorizationRecords.Roles.SuperAdmin.Name;
-
-            if (!await HasAccessToOrganizationAsync(userInformationSqid, orgSqid)) return string.Empty;
-
-            var roles = (await GetUserRoleInformationAsync(userInformationSqid)).Where(x => x.OrganizationSqid == orgSqid).ToList();
-
-            if (!roles.Any()) return AuthorizationRecords.Roles.User.Name;
-
-            if (roles.Any(x => x.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name)) return AuthorizationRecords.Roles.OrganizationAdmin.Name;
-            if (roles.Any(x => x.RoleName == AuthorizationRecords.Roles.LocationAdmin.Name && x.OrganizationWide)) return AuthorizationRecords.Roles.LocationAdmin.Name;
-            if (roles.Any(x => x.RoleName == AuthorizationRecords.Roles.LocationAdmin.Name && x.LocationSqid == locationSqid)) return AuthorizationRecords.Roles.LocationAdmin.Name;
-
-            return AuthorizationRecords.Roles.User.Name;
+            using var context = _contextFactory.CreateDbContext();
+            var location = await context.Locations.Where(x => x.LocationSqid == locationSqid)
+                .Select(x => new { x.OrganizationId }).SingleOrDefaultAsync();
+            if (location == null || _sqids.EncodeOrganizationId(location.OrganizationId) != orgSqid)
+                return string.Empty;
+            return ResourceAuthorization.LocationRole(await GetUserRoleInformationAsync(userInformationSqid), orgSqid, locationSqid, user.IsSuperAdmin);
         }
 
         /// <summary>
