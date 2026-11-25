@@ -128,6 +128,10 @@
         if (form.IsValid)
         {
             var saved = await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
+            editedUser = saved;
+            if (saved.UserInformationSqid == userInformation.UserInformationSqid)
+                userInformation = saved;
+            SetButtonState(userInformation.HasCompletedRegistration);
             Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
             readOnly = true;
             if (saved.HasCompletedRegistration && LocalRedirect.IsSafe(ReturnUrl))
