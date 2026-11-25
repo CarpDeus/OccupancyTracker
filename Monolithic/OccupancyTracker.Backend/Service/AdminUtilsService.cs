@@ -1,8 +1,5 @@
 ﻿using Enyim.Caching;
-using Microsoft.EntityFrameworkCore;
 using OccupancyTracker.IService;
-using OccupancyTracker.Models;
-using Sqids;
 
 namespace OccupancyTracker.Service
 {
@@ -23,11 +20,8 @@ namespace OccupancyTracker.Service
         }
 
         /// <summary>
-        /// Clears the cache.
+        /// Requests a cache flush on the available servers.
         /// </summary>
-        public void ClearCache()
-        {
-            _memcachedClient.FlushAll();
-        }
+        public Task ClearCacheAsync() => _memcachedClient.FlushAllAsync();
     }
 }

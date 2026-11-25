@@ -6,12 +6,11 @@
 @using System.ComponentModel.DataAnnotations
 @using FluentValidation
 @inject IAuthorizationService AuthorizationService
-@inject IOccAuthorizationService occAuthorizationService
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject NavigationManager NavManager
 @inject IDialogService DialogService
 @inject MudBlazor.ISnackbar Snackbar
-@inject IOrganizationUserService organizationUserService
+@inject OrganizationUserApiClient OrganizationUsersApi
 @inject ProfileApiClient ProfileApi
 <PageTitle>Your Information</PageTitle>
 
@@ -60,13 +59,13 @@
                 }
             </MudPaper>
         </MudItem>
-        @if (editedUser.HasCompletedRegistration)
+        @if (editedUser.UserInformationSqid == userInformation?.UserInformationSqid && editedUser.HasCompletedRegistration)
         {
             <MudItem xs="6">
                 <MudPaper Class="d-flex align-center justify-center mud-width-full py-8" Elevation="0">
                 <MudForm>
                     <div class="d-flex align-center justify-space-between">
-                        <MudTextField Margin="Margin.Dense" T="string" @bind-Value="invitationCode" Label="Invitation code" Variant="Variant.Filled" /><MudButton Variant="Variant.Filled" @bind-Color="@buttonColor" StartIcon="@Icons.Material.Filled.Redeem" @bind-Enabled="@buttonsDisabled" OnClick="@RedeemInvite">Redeem Invitation</MudButton>
+                        <MudTextField Margin="Margin.Dense" T="string" @bind-Value="invitationCode" Label="Invitation code" Variant="Variant.Filled" /><MudButton Variant="Variant.Filled" Color="@buttonColor" StartIcon="@Icons.Material.Filled.Redeem" Disabled="@(!redeemEnabled)" OnClick="@RedeemInvite">Redeem Invitation</MudButton>
                     </div>
                 </MudForm>
             </MudPaper>
@@ -99,14 +98,14 @@
 
     private Color buttonColor = Color.Primary;
     private string invitationCode = "";
-    private bool buttonsDisabled = false;
+    private bool redeemEnabled = false;
 
     UserInformationValidator userInformationValidator = new UserInformationValidator();
 
 
     private void SetButtonState(bool UserCompletedRegistration)
     {
-        buttonsDisabled = !UserCompletedRegistration;
+        redeemEnabled = UserCompletedRegistration;
         buttonColor = UserCompletedRegistration ? Color.Primary : Color.Transparent;
     }
 
@@ -116,37 +115,49 @@
         return Task.CompletedTask;        
     }
 
-    private async Task<Task> DiscardEdit()
+    private async Task DiscardEdit()
     {
-        editedUser = editedUser.UserInformationSqid == userInformation?.UserInformationSqid
-            ? await ProfileApi.GetAsync()
-            : await occAuthorizationService.GetAsync(editedUser.UserInformationSqid);
-        readOnly = true;
-        return Task.CompletedTask;
+        try
+        {
+            editedUser = editedUser.UserInformationSqid == userInformation?.UserInformationSqid
+                ? await ProfileApi.GetAsync()
+                : await ProfileApi.GetUserAsync(editedUser.UserInformationSqid);
+            readOnly = true;
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to reload the profile: {ex.Message}", MudBlazor.Severity.Error);
+        }
     }
 
-    private async Task<Task> Save()
+    private async Task Save()
     {
         await form.Validate();
         if (form.IsValid)
         {
-            var saved = editedUser.UserInformationSqid == userInformation.UserInformationSqid
-                ? await ProfileApi.SaveAsync(editedUser)
-                : await occAuthorizationService.SaveUserAsync(editedUser, userInformation.UserInformationSqid);
-            editedUser = saved;
-            if (saved.UserInformationSqid == userInformation.UserInformationSqid)
+            try
             {
-                saved.IsSuperAdmin = userInformation.IsSuperAdmin;
-                userInformation = saved;
+                var saved = editedUser.UserInformationSqid == userInformation.UserInformationSqid
+                    ? await ProfileApi.SaveAsync(editedUser)
+                    : await ProfileApi.SaveUserAsync(editedUser.UserInformationSqid, editedUser);
+                editedUser = saved;
+                if (saved.UserInformationSqid == userInformation.UserInformationSqid)
+                {
+                    saved.IsSuperAdmin = userInformation.IsSuperAdmin;
+                    userInformation = saved;
+                }
+                SetButtonState(userInformation.HasCompletedRegistration);
+                Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
+                readOnly = true;
+                if (saved.HasCompletedRegistration && LocalRedirect.IsSafe(ReturnUrl))
+                    NavManager.NavigateTo(ReturnUrl!);
             }
-            SetButtonState(userInformation.HasCompletedRegistration);
-            Snackbar.Add("User Information Saved", MudBlazor.Severity.Success);
-            readOnly = true;
-            if (saved.HasCompletedRegistration && LocalRedirect.IsSafe(ReturnUrl))
-                NavManager.NavigateTo(ReturnUrl!);
+            catch (HttpRequestException ex)
+            {
+                Snackbar.Add($"Unable to save the profile: {ex.Message}", MudBlazor.Severity.Error);
+            }
         }
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
 
@@ -166,7 +177,7 @@
             {
                 editedUser = sqid == userInformation.UserInformationSqid
                     ? userInformation
-                    : await occAuthorizationService.GetAsync(sqid);
+                    : await ProfileApi.GetUserAsync(sqid);
             }
         }
         else editedUser = userInformation;
@@ -201,23 +212,30 @@
     }
 
 
-    private async Task<Task> RedeemInvite()
+    private async Task RedeemInvite()
     {
         if (!userInformation.HasCompletedRegistration)
         {
             Snackbar.Add("You must complete your profile before you can redeem an invitation", MudBlazor.Severity.Error);
-            return Task.CompletedTask; 
+            return;
         }
         try{
-            if(await organizationUserService.RedeemInvitationAsync(userInformation.UserInformationSqid, "", invitationCode))
+            if(await OrganizationUsersApi.RedeemAsync(invitationCode))
+            {
                 Snackbar.Add("Invitation Redeemed", MudBlazor.Severity.Success);
+                userInformation = await ProfileApi.GetAsync();
+                editedUser = userInformation;
+                canCreateOrganization = !userInformation.BelongsToOrganization || userInformation.IsSuperAdmin;
+                invitationCode = "";
+            }
+            else
+                Snackbar.Add("The invitation could not be redeemed.", MudBlazor.Severity.Error);
             this.StateHasChanged();
         }
-        catch (Exception e)
+        catch (HttpRequestException e)
         {
             Snackbar.Add($"Error redeeming invitation\r\n{e.Message}", MudBlazor.Severity.Error);
         }
-        return Task.CompletedTask;
     }
 
 }

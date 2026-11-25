@@ -1,96 +1,123 @@
-﻿@page "/orgs/{organizationSqid}/users/{organizationUserSqid}"
-@using OccupancyTracker.Components.Admin.Components
+@page "/orgs/{organizationSqid}/users/{userSqid}"
+@attribute [Authorize]
 @using OccupancyTracker.DTO
-@inject IOccAuthorizationService occAuthorizationService
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject OccupancyTracker.IService.IOrganizationService organizationService
-@inject OccupancyTracker.IService.ILocationService locationService
-@inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
-@inject NavigationManager NavigatorService
-@inject MudBlazor.ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject OrganizationUserApiClient OrganizationUsersApi
+@inject NavigationManager Navigator
+@inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h3">User Rights for @userName</MudText>
-<MudDivider />
-<MudDataGrid T="OrganizationUserRolesDto" Items="@organizationUserRoles" SortMode="SortMode.Multiple" MultiSelection="false"
-             FooterClass="d-none"
-             Dense="true" Striped="true" Bordered="true" Hover="true">
-    <ToolBarContent>
-        <MudText Typo="Typo.h4">Locations</MudText>
-        <MudSpacer />
-        <MudTextField Margin="Margin.Dense" T="string" @bind-Value="_searchString" Placeholder="search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
-    </ToolBarContent>
-    <Columns>
-        <TemplateColumn CellClass="d-flex" Title="Open">
-            <CellTemplate>
-                <MudStack Row="true" Spacing="1">
-                    @{
+<PageTitle>Membership and roles</PageTitle>
 
-                        string url = $"/orgs/{orgSqid}/locations/{context.Item.LocationSqid}";
-                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
-                    }
-                </MudStack>
-            </CellTemplate>
-        </TemplateColumn>
-        <PropertyColumn Property="x => x.LocationName" Title="Location Name" Sortable="true" />
-        <PropertyColumn Property="x => x.LocationDescription" Title="Description" Sortable="true" />
-        <PropertyColumn Property="x => x.CurrentStatusDescription" Title="Current Status" Sortable="true" />
-        <PropertyColumn Property="x =>(x.EntranceCount ==null ? 0 : x.EntranceCount)" Title="Number of Entrances" Sortable="true" />
-        <PropertyColumn Property="x => x.MaxOccupancy" Title="Max Occupancy" Sortable="true" />
-        <PropertyColumn Property="x => x.CurrentOccupancy" Title="CurrentOccupancy" Sortable="true" />
-
-        <TemplateColumn CellClass="d-flex" Title="Current State">
-            <CellTemplate>
-                <MudStack Row="true" Spacing="1">
-                    @{
-
-                        string[] ids = new string[] { orgSqid, (string)context.Item.LocationSqid };
-                        <OccupancyTracker.Components.Pages.Components.ChangeStatus HandleStatusChange="@((args) => InvokedChangeState(((string[], int,int))args))"
-                                                                                   Ids="ids"
-                                                                                   ShowUndelete="userInformation.IsSuperAdmin"
-                                                                                   CurrentStatus="context.Item.CurrentStatus" />
-                    }
-
-                </MudStack>
-            </CellTemplate>
-        </TemplateColumn>
-    </Columns>
-    <PagerContent>
-        <MudDataGridPager T="Location" />
-    </PagerContent>
-</MudDataGrid>
-
-
+@if (membership != null)
+{
+    <MudText Typo="Typo.h4">Membership for @membership.Name</MudText>
+    <MudText>@membership.EmailAddress</MudText>
+    <MudText Typo="Typo.body2">Dates are inclusive and evaluated in UTC. Organization-wide roles apply to every location.</MudText>
+    @if (membership.UserStatusId is not (0 or 1))
+    {
+        <MudAlert Severity="Severity.Warning">This membership has a status that cannot be edited.</MudAlert>
+    }
+    else
+    {
+        <MudSelect T="int" Label="Membership status" @bind-Value="status">
+            <MudSelectItem Value="0">Approved</MudSelectItem>
+            <MudSelectItem Value="1">No access</MudSelectItem>
+        </MudSelect>
+        <MudDatePicker Label="Start date (optional)" @bind-Date="startDate" Clearable="true" />
+        <MudDatePicker Label="End date (optional)" @bind-Date="endDate" Clearable="true" />
+        <MudSelect T="string" Label="Organization-wide role" @bind-Value="organizationRole">
+            <MudSelectItem Value="@("")">None</MudSelectItem>
+            <MudSelectItem Value="@("User")">User</MudSelectItem>
+            <MudSelectItem Value="@("LocationAdmin")">Location administrator</MudSelectItem>
+            <MudSelectItem Value="@("OrganizationAdmin")">Organization administrator</MudSelectItem>
+        </MudSelect>
+        <MudText Typo="Typo.h6" Class="mt-4">Location roles</MudText>
+        @foreach (var location in membership.Locations)
+        {
+            <MudSelect T="string" Label="@location.LocationName" @bind-Value="location.RoleName" Clearable="true">
+                <MudSelectItem Value="@("User")">User</MudSelectItem>
+                <MudSelectItem Value="@("LocationAdmin")">Location administrator</MudSelectItem>
+            </MudSelect>
+        }
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="@saving" OnClick="Save">Save</MudButton>
+        <MudButton Class="mt-4" Disabled="@saving" OnClick="Reload">Discard changes</MudButton>
+    }
+    <MudButton Class="mt-4" Href="@($"/orgs/{Uri.EscapeDataString(organizationSqid)}")">Back to organization</MudButton>
+}
+else if (error != null)
+{
+    <MudAlert Severity="Severity.Error">@error</MudAlert>
+}
+else
+{
+    <MudProgressCircular Indeterminate="true" />
+}
 
 @code {
-    [CascadingParameter]
-    public Task<AuthenticationState> AuthenticationStateTask { get; set; }
-    [CascadingParameter]
-    public UserInformation? userInformation { get; set; }
+    [Parameter] public string organizationSqid { get; set; } = "";
+    [Parameter] public string userSqid { get; set; } = "";
 
+    private OrganizationMembership? membership;
+    private string? error;
+    private int status;
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private string organizationRole = "";
+    private bool saving;
 
-    [Parameter]
-    public string organizationSqid { get; set; }
+    protected override Task OnParametersSetAsync() => Reload();
 
-    [Parameter]
-    public string organizationUserSqid { get; set; }
-
-    private UserInformation organizationUser = new();
-    private List<OrganizationUserRolesDto> organizationUserRoles = new();
-
-    private string userName = "";
-
-    protected override async Task OnInitializedAsync()
+    private async Task Reload()
     {
-        if (userInformation == null)
+        try
         {
-            var state = await AuthenticationStateTask;
-            userInformation = await occAuthorizationService.GetFromStateAsync(state);
-
+            membership = await OrganizationUsersApi.GetMembershipAsync(organizationSqid, userSqid);
+            status = membership.UserStatusId;
+            startDate = membership.StartDate?.ToDateTime(TimeOnly.MinValue);
+            endDate = membership.EndDate?.ToDateTime(TimeOnly.MinValue);
+            organizationRole = membership.OrganizationRole ?? "";
+            error = null;
         }
-        if (!userInformation.HasCompletedRegistration) NavigatorService.NavigateTo("/profile/edit");
-        organizationUser = await occAuthorizationService.GetAsync(organizationUserSqid);
-        userName = organizationUser.HasCompletedRegistration ? $"{organizationUser.FirstName} {organizationUser.LastName} ": organizationUser.Email;
-        organizationUserRoles = await organizationUserService.GetOrganizationUserRoles(organizationUserSqid, organizationSqid, "", true);
+        catch (HttpRequestException ex)
+        {
+            membership = null;
+            error = ex.StatusCode == System.Net.HttpStatusCode.Conflict
+                ? "This membership has conflicting or unsupported role data and cannot be edited."
+                : $"Unable to load membership: {ex.Message}";
+        }
+    }
+
+    private async Task Save()
+    {
+        if (membership == null) return;
+        if (startDate.HasValue && endDate.HasValue && startDate.Value.Date > endDate.Value.Date)
+        {
+            Snackbar.Add("The start date must not be after the end date.", Severity.Error);
+            return;
+        }
+        saving = true;
+        try
+        {
+            membership = await OrganizationUsersApi.SaveMembershipAsync(organizationSqid, userSqid, new MembershipEdit
+            {
+                Version = membership.Version,
+                UserStatusId = status,
+                StartDate = startDate.HasValue ? DateOnly.FromDateTime(startDate.Value) : null,
+                EndDate = endDate.HasValue ? DateOnly.FromDateTime(endDate.Value) : null,
+                OrganizationRole = string.IsNullOrEmpty(organizationRole) ? null : organizationRole,
+                LocationRoles = membership.Locations.Where(x => !string.IsNullOrEmpty(x.RoleName))
+                    .Select(x => new MembershipRoleEdit { LocationSqid = x.LocationSqid, RoleName = x.RoleName! }).ToList()
+            });
+            Snackbar.Add("Membership saved.", Severity.Success);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add(ex.StatusCode == System.Net.HttpStatusCode.Conflict
+                ? "The membership changed, has unsupported data, or this change would leave the organization without an administrator. Reload and try again."
+                : $"Unable to save membership: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            saving = false;
+        }
     }
 }

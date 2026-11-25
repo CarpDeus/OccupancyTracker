@@ -1,11 +1,10 @@
 ﻿@page "/orgs/{orgSqid}"
 @attribute [Authorize]
-@inject IOccAuthorizationService occAuthorizationService
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
+@using OccupancyTracker.DTO
 @inject OrganizationApiClient OrganizationApi
 @inject ProfileApiClient ProfileApi
 @inject FacilityApiClient FacilityApi
-@inject OccupancyTracker.IService.IOrganizationUserService organizationUserService
+@inject OrganizationUserApiClient OrganizationUsersApi
 @inject NavigationManager NavigatorService
 @inject MudBlazor.ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -83,8 +82,9 @@
     private bool hideUsersList = true;
     private bool hideInvitedUsersList = true;
     private int activePanelIndex;
-    private List<OrganizationUser> orgUsers;
-    private List<OrganizationInvitationCodes> orgInvitedUsers;
+    private List<OrganizationUserSummary> orgUsers = new();
+    private List<OrganizationInvitationSummary> orgInvitedUsers = new();
+    private bool canManageUsers;
 
     private bool disableUserList = true;
     private bool disableInviteUserList = true;
@@ -120,6 +120,7 @@
             try
             {
                 organization = await OrganizationApi.GetAsync(organizationSqid);
+                canManageUsers = await OrganizationUsersApi.CanManageAsync(organizationSqid);
                 locationUri = $"/orgs/{orgSqid}/locations";
                 await GetLocations();
                 await GetUsers();
@@ -130,8 +131,9 @@
                 NavigatorService.NavigateTo("/NoAccess");
                 return;
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
+                Snackbar.Add($"Unable to load the organization: {ex.Message}", Severity.Error);
                 NavigatorService.NavigateTo("/Error");
                 return;
             }
@@ -144,7 +146,7 @@
             pageTitle = "Organization Details for New Organization";
             userCanEdit = true;
         }
-        if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid))
+        if (canManageUsers)
         {
             userCanEdit = true;
         }
@@ -160,7 +162,9 @@
             { x => x.userInformation, userInformation }
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        await DialogService.ShowAsync<OrganizationUserInviteForm>("Invite User", parameters, options);
+        var dialog = await DialogService.ShowAsync<OrganizationUserInviteForm>("Invite User", parameters, options);
+        await dialog.Result;
+        await GetUsers();
     }
 
     private void OrganizationChanged(Organization updated)
@@ -187,25 +191,26 @@
         hideLocationList = locations.Count == 0;
     }
     private async Task GetUsers()
-    { try{
-            if (userInformation.IsSuperAdmin || await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid, true))
+    {
+        try
+        {
+            if (canManageUsers)
             {
-            orgUsers = await organizationUserService.GetUserListForOrganizationAsync(userInformation.UserInformationSqid, "", organizationSqid);
-            orgInvitedUsers = await organizationUserService.GetInvitedUserListAsync(userInformation.UserInformationSqid, "", organizationSqid);
+                orgUsers = await OrganizationUsersApi.GetUsersAsync(organizationSqid);
+                orgInvitedUsers = await OrganizationUsersApi.GetInvitationsAsync(organizationSqid);
+            }
         }
-        }
-
-        catch (System.Security.SecurityException se)
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             NavigatorService.NavigateTo("/NoAccess");
+            return;
         }
-        catch (Exception ex)
+        catch (HttpRequestException ex)
         {
+            Snackbar.Add($"Unable to load organization users: {ex.Message}", Severity.Error);
             NavigatorService.NavigateTo("/Error");
+            return;
         }
-        if (orgInvitedUsers == null) orgInvitedUsers = new();
-        if (orgUsers == null) orgUsers = new();
-
         hideUsersList = orgUsers.Count == 0;
         hideInvitedUsersList = orgInvitedUsers.Count == 0;
     }
@@ -259,9 +264,8 @@
             hideLocationList = locations.Count == 0;
             disableLocationList = false;
             
-            if (userInformation.IsSuperAdmin || (await occAuthorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, orgSqid)))
+            if (canManageUsers)
             {
-                disableUserList = false;
                 disableUserList = false;
                 disableInviteUserList = false;
             }

@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 @inject ProtectedSessionStorage ProtectedSessionStore
 
-@inject IOccAuthorizationService occAuthorizationService
+@inject ProfileApiClient ProfileApi
 @inject AuthenticationStateProvider GetAuthenticationStateAsync
 @inject IAuthorizationService AuthorizationService
 @inject MudBlazor.ISnackbar Snackbar
@@ -42,10 +42,13 @@
     private MudForm form;
     private string saveButtonText = "SaveAsync";
     private string loggedInUser = "";
+    private bool editingSelf;
 
     protected override async Task OnInitializedAsync()
     {
-        userInformation = await occAuthorizationService.GetAsync(userInformationSqid);
+        var current = await ProfileApi.GetAsync();
+        editingSelf = current.UserInformationSqid == userInformationSqid;
+        userInformation = editingSelf ? current : await ProfileApi.GetUserAsync(userInformationSqid);
 
          await base.OnInitializedAsync();
      }
@@ -56,10 +59,12 @@
 
  
 
-    private async void Save()
+    private async Task Save()
     {
        
-        userInformation= await  occAuthorizationService.SaveUserAsync(userInformation, updateUserInformationSqid);
+        userInformation = editingSelf
+            ? await ProfileApi.SaveAsync(userInformation)
+            : await ProfileApi.SaveUserAsync(userInformationSqid, userInformation);
         Snackbar.Add("User Information Saved", Severity.Success);
         MudDialog.Close(DialogResult.Ok(true));
     }

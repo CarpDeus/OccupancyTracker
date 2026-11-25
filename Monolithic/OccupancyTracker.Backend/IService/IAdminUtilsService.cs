@@ -7,8 +7,8 @@ namespace OccupancyTracker.IService
     public interface IAdminUtilsService
     {
         /// <summary>
-        /// Clear the cache
+        /// Request a flush on the cache servers available to the client.
         /// </summary>
-        public void  ClearCache();
+        Task ClearCacheAsync();
     }
 }

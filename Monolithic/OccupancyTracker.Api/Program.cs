@@ -32,6 +32,9 @@ builder.Services.AddScoped<RequestAuthorizationService>();
 builder.Services.AddScoped<TrackerOperations>();
 builder.Services.AddScoped<OrganizationOperations>();
 builder.Services.AddScoped<FacilityOperations>();
+builder.Services.AddScoped<OrganizationUserOperations>();
+builder.Services.AddScoped<AdminProfileOperations>();
+builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
 builder.Services.AddScoped<IdentityBootstrap>();
 builder.Services.AddHttpClient("auth0-userinfo")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -90,6 +93,26 @@ app.MapPut("/api/me", async (UserInformation edited, RequestAuthorizationService
     catch (SecurityException) { return Results.Forbid(); }
 }).RequireAuthorization();
 
+app.MapGet("/api/admin/users/{sqid}", async (string sqid, AdminProfileOperations profiles) =>
+    await ExecuteFacilityAsync(() => profiles.ExecuteAsync(sqid))).RequireAuthorization();
+app.MapPut("/api/admin/users/{sqid}", async (string sqid, UserInformation edit, AdminProfileOperations profiles) =>
+    await ExecuteFacilityAsync(() => profiles.ExecuteAsync(sqid, edit))).RequireAuthorization();
+
+app.MapPost("/api/admin/cache/flush", async (RequestAuthorizationService authorization, IAdminUtilsService cache, ILoggerFactory loggerFactory) =>
+{
+    UserInformation? actor;
+    try
+    {
+        actor = await authorization.GetCurrentUserAsync();
+    }
+    catch (SecurityException) { return Results.Forbid(); }
+    if (actor?.IsSuperAdmin != true) return Results.Forbid();
+    loggerFactory.CreateLogger("CacheAdministration").LogWarning(
+        "Cache flush requested by {UserSqid}; completion on all cache servers cannot be verified.", actor.UserInformationSqid);
+    await cache.ClearCacheAsync();
+    return Results.Accepted();
+}).RequireAuthorization();
+
 app.MapGet("/api/organizations", async (RequestAuthorizationService requestAuthorization,
     IOccAuthorizationService authorization, IDbContextFactory<OccupancyContext> contexts) =>
 {
@@ -123,6 +146,22 @@ app.MapPut("/api/organizations/{sqid}", async (string sqid, OrganizationEdit edi
     await ExecuteOrganizationAsync(() => organizations.UpdateAsync(sqid, edit))).RequireAuthorization();
 app.MapPost("/api/organizations/{sqid}/status", async (string sqid, OrganizationStatusChange change, OrganizationOperations organizations) =>
     await ExecuteOrganizationAsync(() => organizations.ChangeStatusAsync(sqid, change))).RequireAuthorization();
+
+var users = app.MapGroup("/api/organizations/{orgSqid}").RequireAuthorization();
+users.MapGet("/users/can-manage", async (string orgSqid, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.CanManageAsync(orgSqid)));
+users.MapGet("/users", async (string orgSqid, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.ListUsersAsync(orgSqid)));
+users.MapGet("/users/{userSqid}", async (string orgSqid, string userSqid, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.ReadMembershipAsync(orgSqid, userSqid)));
+users.MapPut("/users/{userSqid}", async (string orgSqid, string userSqid, MembershipEdit edit, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.UpdateMembershipAsync(orgSqid, userSqid, edit)));
+users.MapGet("/invitations", async (string orgSqid, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.ListInvitationsAsync(orgSqid)));
+users.MapPost("/invitations", async (string orgSqid, InviteOrganizationUser invite, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.InviteAsync(orgSqid, invite)));
+app.MapPost("/api/me/invitations/redeem", async (RedeemOrganizationInvitation invitation, OrganizationUserOperations operations) =>
+    await ExecuteFacilityAsync(() => operations.RedeemAsync(invitation))).RequireAuthorization();
 
 var locations = app.MapGroup("/api/organizations/{orgSqid}/locations").RequireAuthorization();
 locations.MapGet("/", async (string orgSqid, FacilityOperations facilities) =>

@@ -1,7 +1,7 @@
-﻿@inject NavigationManager NavigatorService
-<MudDataGrid T="OrganizationInvitationCodes" Items="@orgUsers" SortMode="SortMode.Multiple" MultiSelection="false"
+﻿@using OccupancyTracker.DTO
+<MudDataGrid T="OrganizationInvitationSummary" Items="@orgUsers" SortMode="SortMode.Multiple" MultiSelection="false"
              FooterClass="d-none"
-             Dense="true" Striped="true" Bordered="true" Hover="true" >
+             Dense="true" Striped="true" Bordered="true" Hover="true" QuickFilter="@FilterFunc">
     <ToolBarContent>
         <MudText Typo="Typo.h4">Invited Users</MudText>
         <MudSpacer />
@@ -9,29 +9,19 @@
     </ToolBarContent>
     <Columns>
         @* <SelectColumn T="Location" /> *@
-        <TemplateColumn CellClass="d-flex justify-end">
-            <CellTemplate>
-                <MudStack Row="true" Spacing="1">
-                    @{
-                        string url = $"/orgs/{orgSqid}/invitedusers/{context.Item.InvitationCode}";
-                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="Open" Href="@url" Size="Size.Small" />
-                    }
-                </MudStack>
-            </CellTemplate>
-        </TemplateColumn>
         <PropertyColumn Property="x => x.EmailAddress" Title="Email Address" Sortable="true" />
         <PropertyColumn Property="x => x.InvitationCode" Title="Invitation Code" Sortable="true" />
         
     </Columns>
     <PagerContent >
-        <MudDataGridPager  T="Location" />
+        <MudDataGridPager T="OrganizationInvitationSummary" />
     </PagerContent>
 </MudDataGrid>
 
 @code {
     [Parameter]
     public EventCallback OnRefresh { get; set; }
-    [Parameter] public List<OrganizationInvitationCodes> orgUsers { get; set; }
+    [Parameter] public List<OrganizationInvitationSummary> orgUsers { get; set; }
     [Parameter] public string orgSqid { get; set; }
     [Parameter] public UserInformation userInformation { get; set; }
     private string _searchString = string.Empty;
@@ -40,7 +30,7 @@
 
 
 
-    private bool FilterFunc(OrganizationInvitationCodes searchInvites)
+    private bool FilterFunc(OrganizationInvitationSummary searchInvites)
     {
         if (string.IsNullOrEmpty(_searchString)) return true;
         if (searchInvites.EmailAddress.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
