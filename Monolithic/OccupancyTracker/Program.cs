@@ -43,7 +43,12 @@ namespace OccupancyTracker
             {
                 options.Domain = builder.Configuration["Auth0:Domain"];
                 options.ClientId = builder.Configuration["Auth0:ClientId"];
+                options.ClientSecret = builder.Configuration["Auth0:ClientSecret"]
+                    ?? throw new InvalidOperationException("Auth0:ClientSecret must be configured.");
                 options.Scope = "openid profile email address phone";
+            }).WithAccessToken(options =>
+            {
+                options.Audience = auth0Audience;
             });
             builder.Services.PostConfigure<OpenIdConnectOptions>(Auth0Constants.AuthenticationScheme, options =>
             {

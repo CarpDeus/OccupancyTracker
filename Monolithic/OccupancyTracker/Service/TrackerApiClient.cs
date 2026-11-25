@@ -21,7 +21,16 @@ public sealed class TrackerApiClient(HttpClient client, TokenProvider tokens)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
         if (delta.HasValue)
             request.Content = JsonContent.Create(new { delta = delta.Value });
-        using var response = await client.SendAsync(request, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await client.SendAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException("The tracker API request timed out.", ex);
+        }
+        using var responseScope = response;
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();

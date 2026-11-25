@@ -18,6 +18,32 @@ public sealed class TrackerOperations(
 
     private async Task<TrackerResult> ExecuteAsync(string counterSqid, int? delta)
     {
+        static bool IsDeadlock(Exception exception)
+        {
+            for (Exception? current = exception; current != null; current = current.InnerException)
+            {
+                if (current is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
+                    return true;
+            }
+            return false;
+        }
+
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await ExecuteOnceAsync(counterSqid, delta);
+            }
+            catch (Exception ex) when (attempt < maxAttempts && IsDeadlock(ex))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
+            }
+        }
+    }
+
+    private async Task<TrackerResult> ExecuteOnceAsync(string counterSqid, int? delta)
+    {
         await using var context = await contextFactory.CreateDbContextAsync();
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var data = await (from counter in context.EntranceCounters

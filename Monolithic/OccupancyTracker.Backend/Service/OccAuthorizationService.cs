@@ -48,6 +48,32 @@ namespace OccupancyTracker.Service
         /// <returns>The user information.</returns>
         private async Task<UserInformation> ResolveSsoAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool emailVerified, bool isSuperAdmin)
         {
+            static bool IsDeadlock(Exception exception)
+            {
+                for (Exception? current = exception; current != null; current = current.InnerException)
+                {
+                    if (current is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
+                        return true;
+                }
+                return false;
+            }
+
+            const int maxAttempts = 3;
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return await ResolveSsoOnceAsync(auth0Identifier, givenName, surname, picture, emailAddress, emailVerified, isSuperAdmin);
+                }
+                catch (Exception ex) when (attempt < maxAttempts && IsDeadlock(ex))
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
+                }
+            }
+        }
+
+        private async Task<UserInformation> ResolveSsoOnceAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool emailVerified, bool isSuperAdmin)
+        {
             using var _context = _contextFactory.CreateDbContext();
             await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
             var sso = await _context.UserSsoInformation.SingleOrDefaultAsync(x => x.Auth0Identifier == auth0Identifier);
