@@ -7,16 +7,17 @@ When my job was eliminated in 2024, I realized that this application would be a 
 
 So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
 
-The solution is being split into `OccupancyTracker.Shared` (models and DTOs),
+The solution is split into `OccupancyTracker.Shared` (models and DTOs),
 `OccupancyTracker.Backend` (services, EF Core context and migrations),
 `OccupancyTracker.Api` (tracker, profile, organization, user, location, entrance
-and public-content endpoints), and `OccupancyTracker` (the MudBlazor UI). The
-split is **not complete**: other UI features still call backend services directly.
+and public-content endpoints), and `OccupancyTracker` (the MudBlazor UI).
+The UI references the shared models and communicates with the API; it does not
+reference the backend or connect directly to the database or cache.
 
 ### Running the tracker API and UI
 
-Both hosts require the same `ConnectionStrings:Occupancy`, `Sqids`, and
-`enyimMemcached` configuration as the existing application. Configure
+Configure `ConnectionStrings:Occupancy`, `Sqids`, and `enyimMemcached` on the
+API only. The UI does not need database, Sqids, cache, or SendGrid settings. Configure
 `Auth0:Domain` (the domain without `https://`) and `Auth0:Audience` in both hosts;
 the audience is the identifier of an Auth0 API. The UI also needs its existing
 Auth0 client settings, including `Auth0:ClientId` and `Auth0:ClientSecret`.
@@ -30,8 +31,7 @@ existing EF migration history is preserved. Run only one API instance
 responsible for those processors. Configure `SendGridKey` and the existing
 email settings on the API. Set `OccupancyDomain` on the API to the public UI
 hostname (optionally with a port, without a scheme or path); invitation emails
-link to that host over HTTPS. During the migration, the UI still needs database
-and cache configuration for its remaining direct service calls.
+link to that host over HTTPS.
 
 In development, the API's `http` launch profile listens on `localhost:5236`;
 the UI's development settings point to that address. Start the hosts with:
@@ -103,6 +103,11 @@ by the edited administrator. This restriction also applies to super-admins.
 Unsupported or duplicate legacy role data must be resolved before editing.
 `GET /api/public-content/{page}` serves the public `privacy` and `terms` pages.
 
-The remaining backend services accept caller-supplied identities and must not
-be exposed directly. Future API endpoints must use request authorization for
-every operation and enforce resource and field-level checks.
+`POST /api/admin/cache/flush` is restricted to super-admins and requests a flush
+of the API's configured Memcached pool. The cache client only sends the request
+to available servers and does not report individual results, so the accepted
+response does not confirm that every cache server was flushed.
+
+Legacy backend services accept caller-supplied identities and must not be exposed
+directly. Future API endpoints must use request authorization for every operation
+and enforce resource and field-level checks.

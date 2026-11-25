@@ -34,6 +34,7 @@ builder.Services.AddScoped<OrganizationOperations>();
 builder.Services.AddScoped<FacilityOperations>();
 builder.Services.AddScoped<OrganizationUserOperations>();
 builder.Services.AddScoped<AdminProfileOperations>();
+builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
 builder.Services.AddScoped<IdentityBootstrap>();
 builder.Services.AddHttpClient("auth0-userinfo")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -96,6 +97,21 @@ app.MapGet("/api/admin/users/{sqid}", async (string sqid, AdminProfileOperations
     await ExecuteFacilityAsync(() => profiles.ExecuteAsync(sqid))).RequireAuthorization();
 app.MapPut("/api/admin/users/{sqid}", async (string sqid, UserInformation edit, AdminProfileOperations profiles) =>
     await ExecuteFacilityAsync(() => profiles.ExecuteAsync(sqid, edit))).RequireAuthorization();
+
+app.MapPost("/api/admin/cache/flush", async (RequestAuthorizationService authorization, IAdminUtilsService cache, ILoggerFactory loggerFactory) =>
+{
+    UserInformation? actor;
+    try
+    {
+        actor = await authorization.GetCurrentUserAsync();
+    }
+    catch (SecurityException) { return Results.Forbid(); }
+    if (actor?.IsSuperAdmin != true) return Results.Forbid();
+    loggerFactory.CreateLogger("CacheAdministration").LogWarning(
+        "Cache flush requested by {UserSqid}; completion on all cache servers cannot be verified.", actor.UserInformationSqid);
+    await cache.ClearCacheAsync();
+    return Results.Accepted();
+}).RequireAuthorization();
 
 app.MapGet("/api/organizations", async (RequestAuthorizationService requestAuthorization,
     IOccAuthorizationService authorization, IDbContextFactory<OccupancyContext> contexts) =>

@@ -29,26 +29,10 @@
 
   
   <ItemGroup>
-    <PackageReference Include="AaLogging" Version="1.0.0.2" />
     <PackageReference Include="Auth0.AspNetCore.Authentication" Version="1.4.1" />
-    <PackageReference Include="EfCore.SchemaCompare" Version="10.0.0" />
-    <PackageReference Include="EnyimMemcachedCore" Version="3.2.4" />
     <PackageReference Include="FluentValidation" Version="11.11.0" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.15" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.15" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.15">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
     <PackageReference Include="MudBlazor" Version="6.*" />
     <PackageReference Include="MudBlazor.Markdown" Version="1.0.2" />
-    <PackageReference Include="SendGrid" Version="9.29.3" />
-    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="Sqids" Version="3.1.0" />
   </ItemGroup>
 
   
@@ -72,7 +56,6 @@
 
 
   <ItemGroup>
-    <ProjectReference Include="..\OccupancyTracker.Backend\OccupancyTracker.Backend.csproj" />
     <ProjectReference Include="..\OccupancyTracker.Shared\OccupancyTracker.Shared.csproj" />
   </ItemGroup>
   

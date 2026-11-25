@@ -124,6 +124,7 @@ public class AuthorizationTests
         using var rsa = RSA.Create(2048);
         var key = new RsaSecurityKey(rsa) { KeyId = "test-key" };
         var userInfo = new UserInfoHandler();
+        var cache = new FakeAdminUtils();
         const string issuer = "https://issuer.example/";
         const string audience = "https://api.example/";
         using var app = new WebApplicationFactory<global::Program>().WithWebHostBuilder(builder =>
@@ -150,6 +151,8 @@ public class AuthorizationTests
                 services.AddSingleton<ISqidsEncoderFactory>(new TestSqids());
                 services.RemoveAll<IOccAuthorizationService>();
                 services.AddSingleton<IOccAuthorizationService>(fixture.Legacy);
+                services.RemoveAll<IAdminUtilsService>();
+                services.AddSingleton<IAdminUtilsService>(cache);
                 services.AddHttpClient("auth0-userinfo").ConfigurePrimaryHttpMessageHandler(() => userInfo);
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
@@ -178,6 +181,8 @@ public class AuthorizationTests
         Assert.Equal("Fallback", await client.GetFromJsonAsync<string>("/api/public-content/terms"));
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/public-content/secret")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/organizations")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/admin/cache/flush", null)).StatusCode);
+        Assert.Equal(0, cache.RequestCount);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/organizations/org:1/users")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode = "invite:1:1" })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/me/bootstrap", null)).StatusCode);
@@ -196,6 +201,18 @@ public class AuthorizationTests
             organizationId = 2, organizationSqid = "org:2", paidClient = true, currentStatus = 0, createdBy = "forged"
         };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 1)).IsSuperAdmin = true;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/admin/cache/flush", null)).StatusCode);
+        Assert.Equal(0, cache.RequestCount);
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            (await context.UserInformation.SingleAsync(x => x.UserInformationId == 1)).IsSuperAdmin = false;
+            await context.SaveChangesAsync();
+        }
         var listed = await client.GetFromJsonAsync<List<Organization>>("/api/organizations");
         Assert.Single(listed!);
         Assert.Equal("org:1", listed![0].OrganizationSqid);
@@ -369,6 +386,11 @@ public class AuthorizationTests
                 new Claim("https://occupancy-tracker.secure-scalable.solutions/roles", "SuperAdmin") },
             expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        Assert.Equal(HttpStatusCode.Accepted, (await client.PostAsync("/api/admin/cache/flush", null)).StatusCode);
+        Assert.Equal(1, cache.RequestCount);
+        cache.Fail = true;
+        Assert.Equal(HttpStatusCode.InternalServerError, (await client.PostAsync("/api/admin/cache/flush", null)).StatusCode);
+        cache.Fail = false;
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/organizations/org:1/status", new { fromStatus = 2, toStatus = 1 })).StatusCode);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|bob", audience, DateTime.UtcNow.AddMinutes(5)));
@@ -655,6 +677,43 @@ public class AuthorizationTests
     }
 
     [Fact]
+    public async Task AdminClientSendsCurrentTokenAndSurfacesFailure()
+    {
+        var handler = new TrackerHandler { Status = HttpStatusCode.Accepted };
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
+        var tokens = new TokenProvider { AccessToken = "first-user" };
+        var client = new AdminApiClient(http, tokens);
+        await client.RequestCacheFlushAsync();
+        Assert.Equal("/api/admin/cache/flush", handler.Path);
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.Equal("Bearer first-user", handler.Authorization);
+        tokens.AccessToken = "second-user";
+        handler.Status = HttpStatusCode.Forbidden;
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => client.RequestCacheFlushAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
+        Assert.Equal("Bearer second-user", handler.Authorization);
+        handler.Status = HttpStatusCode.OK;
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.RequestCacheFlushAsync());
+    }
+
+    [Fact]
+    public void UiRuntimeDoesNotDependOnBackendOrStorage()
+    {
+        Assert.DoesNotContain(typeof(OccupancyTracker.Program).Assembly.GetReferencedAssemblies(),
+            x => x.Name == "OccupancyTracker.Backend");
+        var deps = Path.Combine(AppContext.BaseDirectory, "OccupancyTracker.deps.json");
+        using var json = JsonDocument.Parse(File.ReadAllText(deps));
+        var targets = json.RootElement.GetProperty("targets");
+        foreach (var target in targets.EnumerateObject())
+        {
+            var dependencies = target.Value.EnumerateObject().Select(x => x.Name).ToList();
+            Assert.DoesNotContain(dependencies, x => x.StartsWith("OccupancyTracker.Backend/", StringComparison.Ordinal));
+            Assert.DoesNotContain(dependencies, x => x.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal));
+            Assert.DoesNotContain(dependencies, x => x.StartsWith("EnyimMemcachedCore/", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public async Task UserManagementClientSendsCurrentTokenAndSurfacesFailures()
     {
         var handler = new TrackerHandler { ResponseBody = true };
@@ -863,6 +922,18 @@ public class AuthorizationTests
     private sealed class TestHttpContextAccessor : IHttpContextAccessor
     {
         public HttpContext? HttpContext { get; set; }
+    }
+
+    private sealed class FakeAdminUtils : IAdminUtilsService
+    {
+        public int RequestCount { get; private set; }
+        public bool Fail { get; set; }
+        public Task ClearCacheAsync()
+        {
+            RequestCount++;
+            if (Fail) throw new InvalidOperationException("Cache unavailable");
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class TrackerHandler : HttpMessageHandler

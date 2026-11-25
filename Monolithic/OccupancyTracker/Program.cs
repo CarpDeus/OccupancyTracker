@@ -2,11 +2,9 @@ using Auth0.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 
 using OccupancyTracker.Components;
-using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -31,7 +29,6 @@ namespace OccupancyTracker
 
             builder.Services.AddScoped<TokenProvider>();
             builder.Services.AddHttpContextAccessor();
-            builder.Services.AddScoped<IRequestAuthorizationService, RequestAuthorizationService>();
 
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddCascadingValue("userInformation", sp => new UserInformation());
@@ -83,42 +80,10 @@ namespace OccupancyTracker
             builder.Services.AddHttpClient<OrganizationUserApiClient>(client =>
                 client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-
-            builder.Services.AddEnyimMemcached(builder.Configuration.GetSection("enyimMemcached"));
-            //builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
-            //builder.Services.AddDatabaseDeveloperPageExceptionFilter();
-
-
-            var occupancyConnectionString = builder.Configuration.GetConnectionString("Occupancy") ?? throw new InvalidOperationException("Connection string 'Occupancy' not found.");
-            builder.Services.AddDbContextFactory<OccupancyContext>(options =>
-                 options.UseSqlServer(occupancyConnectionString), 
-                 ServiceLifetime.Transient
-                );
-
-            //builder.Services.AddScoped<IProfileService, ProfileService>();
+            builder.Services.AddHttpClient<AdminApiClient>(client =>
+                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddSingleton<NavigatorService>();
-                List<SqidAlphabet> sqidAlphabets = builder.Configuration.GetSection("Sqids").Get<List<SqidAlphabet>>();
-                if (sqidAlphabets.Count == 0)
-                {
-                    throw new InvalidOperationException("Sqids Alphabets not provided!");
-                }
-            // Remove or comment out the direct SqidsEncoder registration
-            // builder.Services.AddSingleton(new SqidsEncoder<long>(new() { ... }));
-
-            // Register the factory
-            builder.Services.AddSingleton<ISqidsEncoderFactory, SqidsEncoderFactory>();
-
-
-            //builder.Services.AddDbContext<OccupancyContext>(options =>
-            //    options.UseSqlServer(occupancyConnectionString));
-            builder.Services.AddSingleton<IOccAuthorizationService, OccAuthorizationService>();
-            builder.Services.AddScoped<IOrganizationService, OrganizationService>();
-            builder.Services.AddScoped<ILocationService, LocationService>();
-            builder.Services.AddScoped<IEntranceService, EntranceService>();
-            builder.Services.AddScoped<IEntranceCounterService, EntranceCounterService>();
-            builder.Services.AddScoped<IOrganizationUserService, OrganizationUserService>();
-            builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
-            builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
 
             builder.Services.AddMvc()
                 .AddJsonOptions(o =>
@@ -158,7 +123,6 @@ namespace OccupancyTracker
             }
 
             app.UseHttpsRedirection();
-            app.UseEnyimMemcached();
             app.UseStaticFiles();
             app.UseAntiforgery();
             app.MapGet("/Account/Login", async (HttpContext httpContext, string returnUrl = "/") =>

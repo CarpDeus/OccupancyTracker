@@ -1,36 +1,85 @@
-﻿@page "/admin/misc"
+@page "/admin/misc"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ProfileApiClient ProfileApi
+@inject AdminApiClient AdminApi
+@inject ISnackbar Snackbar
 
-@inject AuthenticationStateProvider GetAuthenticationStateAsync
-@inject IOccAuthorizationService occAuthorizationService
-@inject IAdminUtilsService adminUtils
-@inject NavigationManager NavManager
- 
-<MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@ClearCache">Clear Cache</MudButton>
+<PageTitle>Administration utilities</PageTitle>
+<MudText Typo="Typo.h4">Administration utilities</MudText>
 
-
+<AuthorizeView>
+    <Authorized>
+        @if (error != null)
+        {
+            <MudAlert Severity="Severity.Error">@error</MudAlert>
+        }
+        else if (!loaded)
+        {
+            <MudProgressCircular Indeterminate="true" />
+        }
+        else if (!isSuperAdmin)
+        {
+            <MudAlert Severity="Severity.Error">Only super-admins can use these utilities.</MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2">Request a flush of the API's configured cache servers. The cache client cannot confirm that every server was flushed.</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="@busy" OnClick="ClearCache">Request cache flush</MudButton>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <MudAlert Severity="Severity.Error">Sign in to use these utilities.</MudAlert>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
-    [CascadingParameter]
-    public UserInformation? userInformation { get; set; }
-
-    private bool dense = false;
-    private bool hover = true;
-    private string _searchString = "";
-    internal string userInformationSqid = "";
-    private Organization organization = new Organization();
-    private List<Organization> organizations ;
-
+    private bool loaded;
+    private bool isSuperAdmin;
+    private bool busy;
+    private string? error;
 
     protected override async Task OnInitializedAsync()
     {
-        var authState = await GetAuthenticationStateAsync.GetAuthenticationStateAsync();
-        userInformation = await occAuthorizationService.GetFromStateAsync(authState);
-
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated != true) return;
+        try
+        {
+            isSuperAdmin = (await ProfileApi.GetAsync()).IsSuperAdmin;
+        }
+        catch (HttpRequestException ex)
+        {
+            error = $"Unable to load your permissions: {ex.Message}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loaded = true;
+        }
     }
-    private Task ClearCache()
+
+    private async Task ClearCache()
     {
-        adminUtils.ClearCache();
-        return Task.CompletedTask; 
+        busy = true;
+        try
+        {
+            await AdminApi.RequestCacheFlushAsync();
+            Snackbar.Add("Cache flush requested. Server completion could not be verified.", Severity.Warning);
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add($"Unable to request a cache flush: {ex.Message}", Severity.Error);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            busy = false;
+        }
     }
-
 }
