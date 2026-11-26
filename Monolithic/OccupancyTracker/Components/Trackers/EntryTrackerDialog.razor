@@ -65,7 +65,7 @@
 </MudContainer>
 
 @code {
-    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
     [Parameter] public EntranceCounterDto entranceCounter { get; set; } = new EntranceCounterDto();
 
     [Parameter] public Organization organization { get; set; }
