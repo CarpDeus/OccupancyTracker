@@ -16,7 +16,7 @@
 
 
 @code {
-    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
     [CascadingParameter] public Task<AuthenticationState> AuthenticationStateTask { get; set; }
 
     [Parameter] public EventCallback OnRefresh { get; set; }
