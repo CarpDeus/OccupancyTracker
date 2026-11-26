@@ -23,7 +23,9 @@ the audience is the identifier of an Auth0 API. The UI also needs its existing
 Auth0 client settings, including `Auth0:ClientId` and `Auth0:ClientSecret`.
 Configure the Auth0 application callbacks for the UI and issue the custom
 super-admin role claim in API access tokens. Supply secrets through your
-deployment's secret store, not checked-in configuration.
+deployment's secret store, not checked-in configuration. See
+[APPSETTINGS.md](APPSETTINGS.md) for per-host configuration templates and
+placeholder values.
 
 The API initializes the database and runs the email and occupancy-log
 background processors. Migrations live in `OccupancyTracker.Backend`; the
