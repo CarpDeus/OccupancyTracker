@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker", "Occupan
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker.Shared", "OccupancyTracker.Shared\OccupancyTracker.Shared.csproj", "{6F145323-EAE3-4AA5-91B6-81BC527CC2DE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker.Authorization.Tests", "OccupancyTracker.Authorization.Tests\OccupancyTracker.Authorization.Tests.csproj", "{866F3C17-8DDF-4DE8-834B-27A0AAE200A4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker.Tests", "OccupancyTracker.Tests\OccupancyTracker.Tests.csproj", "{866F3C17-8DDF-4DE8-834B-27A0AAE200A4}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OccupancyTracker.Backend", "OccupancyTracker.Backend\OccupancyTracker.Backend.csproj", "{B3756A82-4741-4213-B206-18D4D4E300A4}"
 EndProject
