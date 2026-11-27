@@ -1227,6 +1227,44 @@ public class AuthorizationTests
         }
     }
 
+    [Test]
+    public async Task Ui_MainAndTrackerPages_RenderMudThemeVariables()
+    {
+        var oldApi = Environment.GetEnvironmentVariable("Api__BaseAddress");
+        var oldKeys = Environment.GetEnvironmentVariable("DataProtection__KeyPath");
+        try
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
+            using var app = new WebApplicationFactory<OccupancyTracker.Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.ConfigureServices(services =>
+                {
+                    services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                    services.AddHttpClient<TrackerApiClient>()
+                        .ConfigurePrimaryHttpMessageHandler(() => new TrackerHandler { Status = HttpStatusCode.NotFound });
+                });
+            });
+            using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://ui.example"), AllowAutoRedirect = false
+            });
+            foreach (var path in new[] { "/", "/trackers/missing" })
+            {
+                var html = await client.GetStringAsync(path);
+                html.Should().Contain("--mud-appbar-height:")
+                    .And.Contain("--mud-drawer-width-left:")
+                    .And.Contain("--mud-palette-primary:");
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", oldApi);
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", oldKeys);
+        }
+    }
+
     private static SsoOptions TestSsoOptions(string groupClaim = "groups") => new()
     {
         Authority = "https://identity.example", ClientId = "client", ClientSecret = "secret",
