@@ -1192,6 +1192,41 @@ public class AuthorizationTests
         }
     }
 
+    [TestCase("Development")]
+    [TestCase("Production")]
+    public async Task Ui_StaticAssets_ServesMudBlazorStylesAndScripts(string environment)
+    {
+        var oldApi = Environment.GetEnvironmentVariable("Api__BaseAddress");
+        var oldKeys = Environment.GetEnvironmentVariable("DataProtection__KeyPath");
+        try
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
+            using var app = new WebApplicationFactory<OccupancyTracker.Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(environment);
+                builder.ConfigureServices(services =>
+                    services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider()));
+            });
+            using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://ui.example"), AllowAutoRedirect = false
+            });
+            using var css = await client.GetAsync("/_content/MudBlazor/MudBlazor.min.css");
+            css.StatusCode.Should().Be(HttpStatusCode.OK);
+            css.Content.Headers.ContentType!.MediaType.Should().Be("text/css");
+            (await css.Content.ReadAsStringAsync()).Should().Contain(".mud-");
+            using var script = await client.GetAsync("/_content/MudBlazor/MudBlazor.min.js");
+            script.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await script.Content.ReadAsStringAsync()).Should().Contain("mud");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", oldApi);
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", oldKeys);
+        }
+    }
+
     private static SsoOptions TestSsoOptions(string groupClaim = "groups") => new()
     {
         Authority = "https://identity.example", ClientId = "client", ClientSecret = "secret",

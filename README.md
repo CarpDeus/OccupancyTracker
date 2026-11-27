@@ -47,6 +47,10 @@ the Blazor server to the API; expired tokens require another sign-in. Occupancy
 displays refresh every five seconds rather than using the former public SignalR
 hub.
 
+The UI maps .NET static-asset endpoints and loads package asset manifests so
+MudBlazor CSS and JavaScript are available outside Development too. Deploy the
+complete `dotnet publish` output, including `wwwroot` and static-asset manifests.
+
 ### Authorization
 
 `IRequestAuthorizationService` resolves the acting account from the authenticated
