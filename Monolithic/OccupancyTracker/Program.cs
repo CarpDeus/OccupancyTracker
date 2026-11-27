@@ -24,6 +24,7 @@ namespace OccupancyTracker
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+            builder.WebHost.UseStaticWebAssets();
 
             // Add services to the container.
             builder.Services.AddRazorComponents()
@@ -131,7 +132,7 @@ namespace OccupancyTracker
             }
 
             app.UseHttpsRedirection();
-            app.UseStaticFiles();
+            app.MapStaticAssets();
             app.UseAuthentication();
             app.UseAuthorization();
             app.UseAntiforgery();
