@@ -5,7 +5,7 @@ When my job was eliminated in 2024, I realized that this application would be a 
 
 > Getting a product to market, even if it is not fully finished, is a better return then burning money on a product that no one may want.
 
-So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store and [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
+So I decided to push out a monolithic Blazor server application, using [MudBlazor](https://mudblazor.com/) for the UI, [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data storage and OpenID Connect for authentication. This application can be found in the [Monolithic](https://github.com/CarpDeus/OccupancyTracker/tree/main/Monolithic) directory in this repo.
 
 The solution is split into `OccupancyTracker.Shared` (models and DTOs),
 `OccupancyTracker.Backend` (services, EF Core context and migrations),
@@ -17,20 +17,18 @@ reference the backend or connect directly to the database or cache.
 ### Running the tracker API and UI
 
 Configure `ConnectionStrings:Occupancy`, `Sqids`, and `enyimMemcached` on the
-API only. The UI does not need database, Sqids, cache, or SendGrid settings. Configure
-`Auth0:Domain` (the domain without `https://`) and `Auth0:Audience` in both hosts;
-the audience is the identifier of an Auth0 API. The UI also needs its existing
-Auth0 client settings, including `Auth0:ClientId` and `Auth0:ClientSecret`.
-Configure the Auth0 application callbacks for the UI and issue the custom
-super-admin role claim in API access tokens. Supply secrets through your
-deployment's secret store, not checked-in configuration. See
+API only. The UI does not need database, Sqids, cache, SendGrid, OIDC provider
+credentials, or JWT signing settings. The API owns the OIDC confidential client
+and signs application tokens. Both hosts need persistent Data Protection keys.
+Supply secrets through your deployment's secret store, not checked-in configuration. See
 [APPSETTINGS.md](APPSETTINGS.md) for per-host configuration templates and
 placeholder values.
 
 The API initializes the database and runs the email and occupancy-log
 background processors. Migrations live in `OccupancyTracker.Backend`; the
-existing EF migration history is preserved. Run only one API instance
-responsible for those processors. Configure `SendGridKey` and the existing
+existing EF migration history is preserved. In a multi-replica deployment, set
+`BackgroundProcessors:Enabled` and `DatabaseInitialization:Enabled` to `false`
+on all but one API replica, and start the initializing replica first. Configure `SendGridKey` and the existing
 email settings on the API. Set `OccupancyDomain` on the API to the public UI
 hostname (optionally with a port, without a scheme or path); invitation emails
 link to that host over HTTPS.
@@ -52,21 +50,22 @@ hub.
 ### Authorization
 
 `IRequestAuthorizationService` resolves the acting account from the authenticated
-HTTP principal's Auth0 subject, not a user ID supplied by the caller. Organization
+HTTP principal's API-issued subject, not a user ID supplied by the caller. Organization
 and location permissions come from active memberships and are scoped to the
 requested resource. A counter is usable anonymously only if its current,
 active counter does not require authentication; otherwise the actor must have
 access to its location.
 
-The tracker API validates access-token signatures, issuer, audience and expiry.
-The super-admin role must be included in the validated access token as
-`https://occupancy-tracker.secure-scalable.solutions/roles`.
+The API validates its own access-token signatures, issuer, audience and expiry.
+Only membership in the configured OIDC SuperAdmin group grants SuperAdmin.
+Membership is evaluated at sign-in and remains in the issued token until expiry;
+the first user is not automatically an administrator. Organization and location
+roles remain locally managed.
 Never accept a principal, actor ID, or `IsSuperAdmin` value from an API request
-body. New SSO account links require an Auth0-verified email address. On sign-in the
-API retrieves the profile directly from Auth0's user-info endpoint and checks
-that its subject matches the validated access token. The UI requests `openid`,
-`profile` and `email` scopes; Auth0 must permit the API audience's access
-tokens to call `/userinfo`.
+body. New SSO account links require an OIDC-verified email address. Existing
+Auth0 accounts can be linked by verified email when signing in with the new
+provider. The provider must supply stable subject identifiers, verified emails
+and group claims in its ID token or UserInfo response.
 
 `GET /api/trackers/{counterSqid}` reads a counter and
 `POST /api/trackers/{counterSqid}/count` accepts `{"delta": 1}`. Anonymous
@@ -74,8 +73,7 @@ counter URLs are capabilities: anyone with an active public counter URL can
 read and update it, so handle those URLs as secrets. Protected counters require
 a valid token and location access.
 
-`POST /api/me/bootstrap` links or creates the signed-in account using Auth0's
-verified profile. `GET /api/me` and `PUT /api/me` read and update only that
+The API links or creates the account during OIDC sign-in. `GET /api/me` and `PUT /api/me` read and update only that
 account's editable profile fields; identity and privilege fields are ignored.
 `GET /api/organizations` lists organizations visible to the authenticated
 account using active, date-valid memberships and resource-scoped roles.

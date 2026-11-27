@@ -6,9 +6,6 @@ namespace OccupancyTracker.Service;
 
 public sealed class ProfileApiClient(HttpClient client, TokenProvider tokens)
 {
-    public Task<UserInformation> BootstrapAsync(CancellationToken cancellationToken = default) =>
-        SendAsync(HttpMethod.Post, "api/me/bootstrap", null, cancellationToken);
-
     public Task<UserInformation> GetAsync(CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, "api/me", null, cancellationToken);
 

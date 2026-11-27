@@ -1,21 +1,84 @@
 using System.Security;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+builder.Services.AddSingleton(services => SsoOptions.Load(
+    services.GetRequiredService<IConfiguration>(), services.GetRequiredService<IWebHostEnvironment>().IsDevelopment()));
+builder.Services.AddDataProtection().SetApplicationName("OccupancyTracker.Api");
+builder.Services.AddOptions<KeyManagementOptions>().Configure<IConfiguration, ILoggerFactory>((options, config, loggers) =>
 {
-    var domain = builder.Configuration["Auth0:Domain"];
-    var audience = builder.Configuration["Auth0:Audience"];
-    if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(audience))
-        throw new InvalidOperationException("Auth0:Domain and Auth0:Audience must be configured.");
-    options.Authority = new Uri($"https://{domain.TrimEnd('/')}/").ToString();
-    options.Audience = audience;
+    var keyPath = config["DataProtection:KeyPath"];
+    if (string.IsNullOrWhiteSpace(keyPath))
+        throw new InvalidOperationException("DataProtection:KeyPath must be configured to a persistent shared directory.");
+    options.XmlRepository = new FileSystemXmlRepository(new DirectoryInfo(keyPath), loggers);
+});
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer()
+    .AddCookie("external", options =>
+    {
+        options.Cookie.Name = builder.Environment.IsDevelopment() ? "OccupancyTracker.External" : "__Host-OccupancyTracker.External";
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+    })
+    .AddOpenIdConnect("oidc", _ => { });
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme).Configure<SsoOptions>((options, sso) =>
+{
     options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true, ValidIssuer = sso.Issuer,
+        ValidateAudience = true, ValidAudience = sso.Audience,
+        ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(sso.SigningKey),
+        ValidateLifetime = true, ClockSkew = TimeSpan.Zero,
+        ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
+    };
+});
+builder.Services.AddOptions<OpenIdConnectOptions>("oidc").Configure<SsoOptions, IWebHostEnvironment>((options, sso, environment) =>
+{
+    options.SignInScheme = "external";
+    options.Authority = sso.Authority;
+    options.RequireHttpsMetadata = !environment.IsDevelopment();
+    options.ClientId = sso.ClientId;
+    options.ClientSecret = sso.ClientSecret;
+    options.CallbackPath = sso.CallbackPath;
+    options.ResponseType = OpenIdConnectResponseType.Code;
+    options.UsePkce = true;
+    options.MapInboundClaims = false;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.Scope.Clear();
+    foreach (var scope in sso.Scopes) options.Scope.Add(scope);
+    options.ClaimActions.MapJsonKey("email", "email");
+    options.ClaimActions.MapJsonKey("email_verified", "email_verified");
+    options.ClaimActions.MapJsonKey("given_name", "given_name");
+    options.ClaimActions.MapJsonKey("family_name", "family_name");
+    options.ClaimActions.MapJsonKey("picture", "picture");
+    options.ClaimActions.MapJsonKey(sso.GroupClaim, sso.GroupClaim);
+    options.Events.OnRedirectToIdentityProvider = context =>
+    {
+        context.ProtocolMessage.RedirectUri = new Uri(sso.PublicOrigin, sso.CallbackPath).ToString();
+        return Task.CompletedTask;
+    };
+});
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    foreach (var address in builder.Configuration.GetSection("TrustedProxies").Get<string[]>() ?? [])
+        options.KnownProxies.Add(System.Net.IPAddress.Parse(address));
 });
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
@@ -35,20 +98,23 @@ builder.Services.AddScoped<FacilityOperations>();
 builder.Services.AddScoped<OrganizationUserOperations>();
 builder.Services.AddScoped<AdminProfileOperations>();
 builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
-builder.Services.AddScoped<IdentityBootstrap>();
-builder.Services.AddHttpClient("auth0-userinfo")
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<SsoService>();
 builder.Services.AddTransient<OccupancyDbInitializer>();
 builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
-builder.Services.AddHostedService<DatabaseInitializationService>();
-builder.Services.AddHostedService<OccupancyLogProcessor>();
-builder.Services.AddHostedService<OccupancyEmailProcessor>();
+if (builder.Configuration.GetValue("DatabaseInitialization:Enabled", true))
+    builder.Services.AddHostedService<DatabaseInitializationService>();
+if (builder.Configuration.GetValue("BackgroundProcessors:Enabled", true))
+{
+    builder.Services.AddHostedService<OccupancyLogProcessor>();
+    builder.Services.AddHostedService<OccupancyEmailProcessor>();
+}
 
 var app = builder.Build();
 _ = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>()
     .Get(JwtBearerDefaults.AuthenticationScheme);
 if (string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("Occupancy")))
     throw new InvalidOperationException("Connection string 'Occupancy' not found.");
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseEnyimMemcached();
 app.UseAuthentication();
@@ -67,11 +133,41 @@ app.MapGet("/api/public-content/{page}", async (string page, IDbContextFactory<O
     return content == null ? Results.NotFound() : Results.Ok(content);
 });
 
-app.MapPost("/api/me/bootstrap", async (HttpContext context, IdentityBootstrap identity, CancellationToken cancellationToken) =>
+app.MapGet("/api/auth/status", (SsoOptions options) =>
+    Results.Ok(new { provider = "OIDC", signInUrl = "/api/auth/sign-in" }));
+
+app.MapGet("/api/auth/sign-in", (string? challenge) =>
 {
-    try { return Results.Ok(await identity.ResolveAsync(context, cancellationToken)); }
+    if (challenge == null || !SsoService.ValidSecret(challenge)) return Results.BadRequest();
+    var properties = new AuthenticationProperties { RedirectUri = "/api/auth/callback" };
+    properties.Items["challenge"] = challenge;
+    return Results.Challenge(properties, ["oidc"]);
+});
+
+app.MapGet("/api/auth/callback", async (HttpContext context, SsoService service, SsoOptions options) =>
+{
+    var external = await context.AuthenticateAsync("external");
+    await context.SignOutAsync("external");
+    if (!external.Succeeded || external.Principal == null ||
+        !external.Properties!.Items.TryGetValue("challenge", out var challenge) ||
+        challenge == null || !SsoService.ValidSecret(challenge))
+        return Results.Unauthorized();
+    try
+    {
+        var code = await service.CreateExchangeAsync(external.Principal, challenge);
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        return Results.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(options.UiCallback.ToString(), "code", code));
+    }
     catch (SecurityException) { return Results.Forbid(); }
-}).RequireAuthorization();
+});
+
+app.MapPost("/api/auth/exchange", async (SsoExchangeRequest request, SsoService service, HttpContext context) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    var result = await service.ExchangeAsync(request.Code ?? "", request.Verifier ?? "");
+    return result == null ? Results.BadRequest() : Results.Ok(result);
+});
 
 app.MapGet("/api/me", async (RequestAuthorizationService authorization) =>
 {

@@ -23,6 +23,29 @@ namespace OccupancyTracker.Models.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("OccupancyTracker.Models.SsoExchangeCode", b =>
+                {
+                    b.Property<string>("CodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .UseCollation("SQL_Latin1_General_CP1_CS_AS");
+
+                    b.Property<string>("Challenge")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("ExpiresUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProtectedToken")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("CodeHash");
+                    b.ToTable("SsoExchangeCodes");
+                });
+
             modelBuilder.Entity("OccupancyTracker.Models.EmailProcessorHistory", b =>
                 {
                     b.Property<long>("EmailProcessorHistoryId")
