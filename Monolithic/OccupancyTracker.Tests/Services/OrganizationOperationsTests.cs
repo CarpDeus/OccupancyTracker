@@ -9,6 +9,8 @@ using NUnit.Framework;
 using Sqids;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
+using OccupancyTracker.IRepository;
+using OccupancyTracker.Repository;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 
@@ -124,7 +126,7 @@ public sealed class OrganizationOperationsTests
         public HttpContext? HttpContext { get; set; }
     }
 
-    private sealed class TestContextFactory : IDbContextFactory<OccupancyContext>
+    private sealed class TestContextFactory : IDbContextFactory<OccupancyContext>, IRepositorySessionFactory
     {
         private readonly SqliteConnection connection;
         private readonly DbContextOptions<OccupancyContext> options;
@@ -138,6 +140,11 @@ public sealed class OrganizationOperationsTests
         }
 
         public OccupancyContext CreateDbContext() => new(options);
+        public IRepositorySession Create() => new RepositorySessionFactory(this).Create();
+        public Task<IRepositorySession> CreateAsync(CancellationToken cancellationToken = default) =>
+            new RepositorySessionFactory(this).CreateAsync(cancellationToken);
+        public bool IsConcurrencyConflict(Exception exception) =>
+            new RepositorySessionFactory(this).IsConcurrencyConflict(exception);
     }
 
     private sealed class TestSqids : ISqidsEncoderFactory

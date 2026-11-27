@@ -1,8 +1,7 @@
-﻿using Enyim.Caching;
+﻿using OccupancyTracker.IRepository;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 
 using OccupancyTracker.IService;
@@ -19,19 +18,16 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class OccAuthorizationService : IOccAuthorizationService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _contextFactory;
         private readonly ISqidsEncoderFactory _sqids;
-        private readonly IMemcachedClient _memcachedClient;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OccAuthorizationService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="contextFactory">The repository session factory.</param>
         /// <param name="sqidsEncoderFactory">The SQIDs encoder factory.</param>
-        /// <param name="memcachedClient">The memcached client.</param>
-        public OccAuthorizationService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory sqidsEncoderFactory, IMemcachedClient memcachedClient)
+        public OccAuthorizationService(IRepositorySessionFactory contextFactory, ISqidsEncoderFactory sqidsEncoderFactory)
         {
-            _memcachedClient = memcachedClient;
             _contextFactory = contextFactory;
             _sqids = sqidsEncoderFactory;
         }
@@ -48,16 +44,6 @@ namespace OccupancyTracker.Service
         /// <returns>The user information.</returns>
         private async Task<UserInformation> ResolveSsoAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool emailVerified, bool isSuperAdmin)
         {
-            static bool IsDeadlock(Exception exception)
-            {
-                for (Exception? current = exception; current != null; current = current.InnerException)
-                {
-                    if (current is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
-                        return true;
-                }
-                return false;
-            }
-
             const int maxAttempts = 3;
             for (var attempt = 1; ; attempt++)
             {
@@ -65,7 +51,7 @@ namespace OccupancyTracker.Service
                 {
                     return await ResolveSsoOnceAsync(auth0Identifier, givenName, surname, picture, emailAddress, emailVerified, isSuperAdmin);
                 }
-                catch (Exception ex) when (attempt < maxAttempts && IsDeadlock(ex))
+                catch (Exception ex) when (attempt < maxAttempts && _contextFactory.IsConcurrencyConflict(ex))
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
                 }
@@ -74,8 +60,8 @@ namespace OccupancyTracker.Service
 
         private async Task<UserInformation> ResolveSsoOnceAsync(string auth0Identifier, string givenName, string surname, string picture, string emailAddress, bool emailVerified, bool isSuperAdmin)
         {
-            using var _context = _contextFactory.CreateDbContext();
-            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            using var _context = _contextFactory.Create();
+            await using var transaction = await _context.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
             var sso = await _context.UserSsoInformation.SingleOrDefaultAsync(x => x.Auth0Identifier == auth0Identifier);
             UserInformation? userInformation;
 
@@ -163,7 +149,7 @@ namespace OccupancyTracker.Service
         {
             if (string.IsNullOrEmpty(userInformationSqid)) return new UserInformation();
 
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _contextFactory.Create();
             var userInformation = await _context.UserInformation.FirstOrDefaultAsync(x => x.UserInformationSqid == userInformationSqid);
 
             if (userInformation == null || string.IsNullOrEmpty(userInformation.UserInformationSqid))
@@ -190,7 +176,7 @@ namespace OccupancyTracker.Service
             {
                 throw new System.Security.SecurityException("Not authorized to edit this profile.");
             }
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _contextFactory.Create();
             var target = await _context.UserInformation.SingleAsync(x => x.UserInformationSqid == userInformation.UserInformationSqid);
             target.FirstName = userInformation.FirstName;
             target.LastName = userInformation.LastName;
@@ -265,7 +251,7 @@ namespace OccupancyTracker.Service
         /// <returns>The list of current user role information.</returns>
         private async Task<List<CurrentUserRoleInformation>> GetUserRoleInformationAsync(string userInformationSqid, bool forceCacheRefresh = false)
         {
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _contextFactory.Create();
             var userId = _sqids.DecodeUserInformation(userInformationSqid);
             return await AuthorizationGrantStore.GetRolesAsync(_context, _sqids, userId);
         }
@@ -291,11 +277,8 @@ namespace OccupancyTracker.Service
                 return roles.Where(x => x.OrganizationSqid == organizationSqid).ToList();
             }
 
-            using var _context = _contextFactory.CreateDbContext();
-            var location = await _context.Locations
-                .Where(x => x.LocationSqid == locationSqid)
-                .Select(x => new { x.OrganizationId })
-                .SingleOrDefaultAsync();
+            using var _context = _contextFactory.Create();
+            var location = await _context.Locations.SingleOrDefaultAsync(x => x.LocationSqid == locationSqid);
             if (location == null) return new List<CurrentUserRoleInformation>();
             var locOrgSqid = _sqids.EncodeOrganizationId(location.OrganizationId);
             if (!string.IsNullOrEmpty(organizationSqid) && organizationSqid != locOrgSqid)
@@ -328,9 +311,8 @@ namespace OccupancyTracker.Service
         /// </returns>
         public async Task<bool> HasAccessToLocationAsync(string userInformationSqid, string locationSqid)
         {
-            using var context = _contextFactory.CreateDbContext();
-            var location = await context.Locations.Where(x => x.LocationSqid == locationSqid)
-                .Select(x => new { x.OrganizationId }).SingleOrDefaultAsync();
+            using var context = _contextFactory.Create();
+            var location = await context.Locations.SingleOrDefaultAsync(x => x.LocationSqid == locationSqid);
             if (location == null) return false;
             var organizationSqid = _sqids.EncodeOrganizationId(location.OrganizationId);
             return !string.IsNullOrEmpty(await GetUserInformationRoleForLocationAsync(userInformationSqid, organizationSqid, locationSqid));
@@ -361,9 +343,8 @@ namespace OccupancyTracker.Service
         public async Task<string> GetUserInformationRoleForLocationAsync(string userInformationSqid, string orgSqid, string locationSqid, bool forceRefreshCache = false)
         {
             var user = await GetAsync(userInformationSqid);
-            using var context = _contextFactory.CreateDbContext();
-            var location = await context.Locations.Where(x => x.LocationSqid == locationSqid)
-                .Select(x => new { x.OrganizationId }).SingleOrDefaultAsync();
+            using var context = _contextFactory.Create();
+            var location = await context.Locations.SingleOrDefaultAsync(x => x.LocationSqid == locationSqid);
             if (location == null || _sqids.EncodeOrganizationId(location.OrganizationId) != orgSqid)
                 return string.Empty;
             return ResourceAuthorization.LocationRole(await GetUserRoleInformationAsync(userInformationSqid), orgSqid, locationSqid, user.IsSuperAdmin);
@@ -389,7 +370,7 @@ namespace OccupancyTracker.Service
 
             if (!string.IsNullOrEmpty(organizationSqid))
             {
-                using (var _dbContext = _contextFactory.CreateDbContext())
+                using (var _dbContext = _contextFactory.Create())
                 {
                     logOrg = await _dbContext.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 }
@@ -397,7 +378,7 @@ namespace OccupancyTracker.Service
 
             if (!string.IsNullOrEmpty(locationSqid))
             {
-                using (var _dbContext = _contextFactory.CreateDbContext())
+                using (var _dbContext = _contextFactory.Create())
                 {
                     logLoc = await _dbContext.Locations.FirstOrDefaultAsync(x => x.LocationSqid == locationSqid);
                 }
@@ -405,7 +386,7 @@ namespace OccupancyTracker.Service
 
             if (!string.IsNullOrEmpty(entranceSqid))
             {
-                using (var _dbContext = _contextFactory.CreateDbContext())
+                using (var _dbContext = _contextFactory.Create())
                 {
                     logEnt = await _dbContext.Entrances.FirstOrDefaultAsync(x => x.EntranceSqid == entranceSqid);
                 }
@@ -422,7 +403,7 @@ namespace OccupancyTracker.Service
                 AttemptLogged = DateTime.Now
             };
 
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _contextFactory.Create();
             _context.InvalidSecurityAttempt.Add(invalidSecurityAttempt);
             await _context.SaveChangesAsync();
 

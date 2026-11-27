@@ -1,5 +1,4 @@
-﻿using Enyim.Caching;
-using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using Microsoft.Identity.Client;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
@@ -14,17 +13,17 @@ namespace OccupancyTracker.Service
 {
     public class LocationService : ILocationService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _repositoryFactory;
         private readonly ISqidsEncoderFactory _sqids;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly ICacheRepository _cacheRepository;
         private readonly IOccAuthorizationService _authorizationService;
 
-        public LocationService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory sqidsEncoderFactory, IMemcachedClient memcachedClient,
+        public LocationService(IRepositorySessionFactory repositoryFactory, ISqidsEncoderFactory sqidsEncoderFactory, ICacheRepository cacheRepository,
             IOccAuthorizationService authorizationService)
         {
             _authorizationService = authorizationService;
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
             _sqids = sqidsEncoderFactory;
         }
 
@@ -70,7 +69,7 @@ namespace OccupancyTracker.Service
                 }
                 throw new InvalidOperationException(sb.ToString());
             }
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 if (loc != null)
                 {
@@ -123,14 +122,14 @@ namespace OccupancyTracker.Service
                 throw new Exception("Organization not found");
             }
             string cacheKey = $"Loc:{locationSqid}";
-            Location? loc = null;// _memcachedClient.Get<Location>(cacheKey);
+            Location? loc = null;
             if (loc == null || forceCacheRefresh)
             {
-                using (var context = _contextFactory.CreateDbContext())
+                using (var context = _repositoryFactory.Create())
                 {
-                    loc = context.Locations.FirstOrDefault(e => e.LocationSqid == locationSqid);
+                    loc = await context.Locations.FirstOrDefaultAsync(e => e.LocationSqid == locationSqid);
                     if (loc != null)
-                        await _memcachedClient.SetAsync(cacheKey, loc, 15);
+                        await _cacheRepository.WriteAsync(cacheKey, loc, TimeSpan.FromSeconds(15));
                     else
                     {
                         throw new InvalidOperationException("Location not found for sqid " + locationSqid);
@@ -170,14 +169,14 @@ namespace OccupancyTracker.Service
         {
             if (!userInformation.IsSuperAdmin) return new List<Location>();
             string cacheKey = $"LocList:{organizationSqid}:{userInformation.UserInformationSqid}";
-            List<Location> retVal = new();// _memcachedClient.Get<List<Location>>(cacheKey);
+            List<Location> retVal = new();
             ParsedOrganizationSqids pos = _sqids.DecodeSqids(organizationSqid);
             //if ( retVal == null || retVal.Count==0 || forceCacheRefresh)
             {
-                retVal = _contextFactory.CreateDbContext().Locations
-                .Where(e => e.OrganizationId == (long)pos.OrganizationId).ToList();
+                using var session = _repositoryFactory.Create();
+                retVal = await session.Locations.ListAsync(e => e.OrganizationId == (long)pos.OrganizationId);
                 if (retVal != null)
-                    await _memcachedClient.SetAsync(cacheKey, retVal, 15);
+                    await _cacheRepository.WriteAsync(cacheKey, retVal, TimeSpan.FromSeconds(15));
                 else
                 {
                     throw new InvalidOperationException("Location List not found for OganizationSqid " + organizationSqid);
@@ -202,17 +201,16 @@ namespace OccupancyTracker.Service
                 throw new Exception("Organization not found");
             }
             string cacheKey = $"LocList:{organizationSqid}:{userInformation.UserInformationSqid}";
-            List<Location> retVal = new();// _memcachedClient.Get<List<Location>>(cacheKey);
+            List<Location> retVal = new();
             ParsedOrganizationSqids pos = _sqids.DecodeSqids(organizationSqid);
             //if (retVal == null || retVal.Count==0|| forceCacheRefresh)
             {
                 bool isOrgAdmin = await _authorizationService.IsOrgAdminAsync(userInformation.UserInformationSqid, organizationSqid);
-                retVal = _contextFactory.CreateDbContext().Locations
-                .Where(e => e.OrganizationId == (long)pos.OrganizationId)
-                .Where(e => e.CurrentStatus == 0 || (isOrgAdmin && e.CurrentStatus == 1))
-                .ToList();
+                using var session = _repositoryFactory.Create();
+                retVal = await session.Locations.ListAsync(e => e.OrganizationId == (long)pos.OrganizationId
+                    && (e.CurrentStatus == 0 || (isOrgAdmin && e.CurrentStatus == 1)));
                 if (retVal != null)
-                    await _memcachedClient.SetAsync(cacheKey, retVal, 15);
+                    await _cacheRepository.WriteAsync(cacheKey, retVal, TimeSpan.FromSeconds(15));
                 else
                 {
                     throw new InvalidOperationException("Location List not found for OganizationSqid " + organizationSqid);
@@ -260,16 +258,13 @@ namespace OccupancyTracker.Service
             {
                 throw new Exception("Organization not found");
             }
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
-                _context.ChangeTracker.Clear();
                 if (loc.LocationId == 0)
                 {
-                    await _context.Locations.AddAsync(loc);
+                    _context.Locations.Add(loc);
                     await _context.SaveChangesAsync();
                     loc.LocationSqid = _sqids.EncodeLocationId(loc.OrganizationId, loc.LocationId);
-                    //_context.Locations.Update(loc);
-                    //_context.Entry(loc).State = EntityState.Modified;
                     await _context.SaveChangesAsync();
                 }
                 else
@@ -279,7 +274,6 @@ namespace OccupancyTracker.Service
                         loc.LocationSqid = _sqids.EncodeLocationId(loc.OrganizationId, loc.LocationId);
                     }
                     _context.Locations.Update(loc);
-                    _context.Entry(loc).State = EntityState.Modified;
                     await _context.SaveChangesAsync();
                 }
                 await _context.SaveChangesAsync();
@@ -297,9 +291,9 @@ namespace OccupancyTracker.Service
         private async Task<bool> OrganizationIsValidForUser(string organizationSqid, UserInformation userInformation)
         {
             int? orgCurrentStatus = null;
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
-                var org = _context.Organizations.FirstOrDefault(x => x.OrganizationSqid == organizationSqid);
+                var org = await _context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 if (org != null)
                 {
                     orgCurrentStatus = org.CurrentStatus;
@@ -359,9 +353,9 @@ namespace OccupancyTracker.Service
         public async Task<LocationOccupancyStats> GetLocationOccupancyStats(string locationSqid)
         {
             LocationOccupancyStats retVal = new LocationOccupancyStats();
-            using (var context = _contextFactory.CreateDbContext())
+            using (var context = _repositoryFactory.Create())
             {
-                var loc = context.Locations.FirstOrDefault(e => e.LocationSqid == locationSqid);
+                var loc = await context.Locations.FirstOrDefaultAsync(e => e.LocationSqid == locationSqid);
                 if (loc != null)
                 {
                     retVal.MaxOccupancy = loc.MaxOccupancy;

@@ -1,5 +1,5 @@
 using System.Data;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.DTO;
 using OccupancyTracker.Models;
 
@@ -8,18 +8,18 @@ namespace OccupancyTracker.Service;
 public record FacilityResult<T>(OrganizationAccess Access, T? Value = default);
 
 public sealed class FacilityOperations(
-    IDbContextFactory<OccupancyContext> contexts,
+    IRepositorySessionFactory contexts,
     RequestAuthorizationService authorization,
     ISqidsEncoderFactory sqids)
 {
-    private sealed record Scope(OccupancyContext Db, UserInformation Actor, Organization Org,
+    private sealed record Scope(IRepositorySession Db, UserInformation Actor, Organization Org,
         Location? Location, List<CurrentUserRoleInformation> Roles, string OrgRole, string LocationRole);
 
     private async Task<FacilityResult<T>> ExecuteAsync<T>(string orgSqid, string? locationSqid,
         Func<Scope, Task<FacilityResult<T>>> operation)
     {
-        await using var db = await contexts.CreateDbContextAsync();
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var db = await contexts.CreateAsync();
+        await using var transaction = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
         if (actor == null) return new(OrganizationAccess.Forbidden);
         var org = await db.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == orgSqid);
@@ -46,7 +46,7 @@ public sealed class FacilityOperations(
     public Task<FacilityResult<List<Location>>> ListLocationsAsync(string orgSqid) =>
         ExecuteAsync<List<Location>>(orgSqid, null, async scope =>
         {
-            var locations = await scope.Db.Locations.Where(x => x.OrganizationId == scope.Org.OrganizationId).ToListAsync();
+            var locations = await scope.Db.Locations.ListAsync(x => x.OrganizationId == scope.Org.OrganizationId);
             return new(OrganizationAccess.Success, locations.Where(x =>
                 x.LocationSqid != null && CanRead(x.CurrentStatus,
                     ResourceAuthorization.LocationRole(scope.Roles, orgSqid, x.LocationSqid, scope.Actor.IsSuperAdmin))).ToList());
@@ -108,8 +108,8 @@ public sealed class FacilityOperations(
     public Task<FacilityResult<List<Entrance>>> ListEntrancesAsync(string orgSqid, string locationSqid) =>
         ExecuteAsync<List<Entrance>>(orgSqid, locationSqid, async scope =>
         {
-            var entrances = await scope.Db.Entrances.Where(x => x.OrganizationId == scope.Org.OrganizationId &&
-                x.LocationId == scope.Location!.LocationId).ToListAsync();
+            var entrances = await scope.Db.Entrances.ListAsync(x => x.OrganizationId == scope.Org.OrganizationId &&
+                x.LocationId == scope.Location!.LocationId);
             return new(OrganizationAccess.Success, entrances.Where(x => CanRead(x.CurrentStatus, scope.LocationRole)).ToList());
         });
 

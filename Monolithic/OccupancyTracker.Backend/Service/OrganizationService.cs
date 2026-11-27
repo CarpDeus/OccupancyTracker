@@ -1,6 +1,5 @@
-﻿using Enyim.Caching;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Authentication;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using Serilog;
@@ -19,23 +18,23 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class OrganizationService : IOrganizationService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly IRepositorySessionFactory _repositoryFactory;
+        private readonly ICacheRepository _cacheRepository;
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OrganizationService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="repositoryFactory">The repository session factory.</param>
         /// <param name="organizationSqidsEncoderFactory">The organization SQIDs encoder factory.</param>
-        /// <param name="memcachedClient">The memcached client.</param>
+        /// <param name="cacheRepository">The cache repository.</param>
         /// <param name="authorizationService">The authorization service.</param>
-        public OrganizationService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient, IOccAuthorizationService authorizationService)
+        public OrganizationService(IRepositorySessionFactory repositoryFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, ICacheRepository cacheRepository, IOccAuthorizationService authorizationService)
         {
             _authorizationService = authorizationService;
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
             _organizationSqidsEncoderFactory = organizationSqidsEncoderFactory;
         }
 
@@ -80,7 +79,7 @@ namespace OccupancyTracker.Service
                 throw new InvalidOperationException(sb.ToString());
             }
 
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 if (org.CurrentStatus == fromStatus)
                 {
@@ -126,7 +125,7 @@ namespace OccupancyTracker.Service
                 return null;
             }
 
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 var org = await _context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 if (org == null)
@@ -196,7 +195,7 @@ namespace OccupancyTracker.Service
         /// <returns><c>true</c> if the organization name is unique; otherwise, <c>false</c>.</returns>
         public async Task<bool> IsUniqueNameAsync(string organizationName, string organizationSqid)
         {
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 return !await _context.Organizations.AnyAsync(x => x.OrganizationName == organizationName && x.OrganizationSqid != organizationSqid);
             }
@@ -213,8 +212,8 @@ namespace OccupancyTracker.Service
             string userInformationSqid = userInformation.UserInformationSqid;
             if (string.IsNullOrEmpty(org.OrganizationSqid) && org.OrganizationId == 0)
             {
-                await _memcachedClient.RemoveAsync($"{userInformationSqid}:Orgs");
-                using (var _context = _contextFactory.CreateDbContext())
+                await _cacheRepository.DeleteAsync($"{userInformationSqid}:Orgs");
+                using (var _context = _repositoryFactory.Create())
                 {
                     var newOrg = await InternalSaveAsync(org, userInformation);
                     var organizationUser = new OrganizationUser
@@ -236,7 +235,6 @@ namespace OccupancyTracker.Service
                     await _context.SaveChangesAsync();
                     userInformation.BelongsToOrganization = true;
                     _context.UserInformation.Update(userInformation);
-                    _context.Entry(userInformation).State = EntityState.Modified;
                     await _context.SaveChangesAsync();
                 }
             }
@@ -250,14 +248,14 @@ namespace OccupancyTracker.Service
                 {
                     throw new InvalidOperationException($"User {userInformationSqid} does not have rights to update organization");
                 }
-                using (var _context = _contextFactory.CreateDbContext())
+                using (var _context = _repositoryFactory.Create())
                 {
                     org.ModifiedBy = userInformationSqid;
                     org.ModifiedDate = DateTime.Now;
                     await InternalSaveAsync(org, userInformation);
                 }
             }
-            await _memcachedClient.RemoveAsync($"{userInformationSqid}:Roles");
+            await _cacheRepository.DeleteAsync($"{userInformationSqid}:Roles");
             await GetListAsync(userInformation, "", true);
             return org;
         }
@@ -270,12 +268,11 @@ namespace OccupancyTracker.Service
         /// <returns>The saved organization.</returns>
         private async Task<Organization> InternalSaveAsync(Organization org, UserInformation userInformation)
         {
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
-                _context.ChangeTracker.Clear();
                 if (org.OrganizationId == 0)
                 {
-                    await _context.Organizations.AddAsync(org);
+                    _context.Organizations.Add(org);
                     await _context.SaveChangesAsync();
                     org.OrganizationSqid = _organizationSqidsEncoderFactory.EncodeOrganizationId(org.OrganizationId);
                 }
@@ -305,32 +302,31 @@ namespace OccupancyTracker.Service
 
             if (userInformation.IsSuperAdmin)
             {
-                using (var _context = _contextFactory.CreateDbContext())
+                using (var _context = _repositoryFactory.Create())
                 {
-                    orgs = await _context.Organizations.ToListAsync();
+                    orgs = await _context.Organizations.ListAsync();
                 }
             }
             else
             {
                 if (orgs == null || orgs.Count == 0 || forceCacheRefresh)
                 {
-                    using (var _context = _contextFactory.CreateDbContext())
+                    using (var _context = _repositoryFactory.Create())
                     {
-                        var userOrgIds = await _context.OrganizationUsers
-                            .Where(x => x.UserInformationId == userInformation.UserInformationId)
+                        var userOrgIds = (await _context.OrganizationUsers.ListAsync(
+                            x => x.UserInformationId == userInformation.UserInformationId))
                             .Select(x => x.OrganizationId)
-                            .ToListAsync();
+                            .ToList();
 
                         var adminOrgIds = (await _authorizationService.GetUserRolesFilteredAsync(userInformationSqid))
                             .Where(role => role.RoleName == "OrganizationAdmin")
                             .Select(role => role.OrganizationSqid)
                             .ToList();
 
-                        orgs = await _context.Organizations
-                            .Where(x => ((x.CurrentStatus == 0 && userOrgIds.Contains(x.OrganizationId)) ||
+                        orgs = await _context.Organizations.ListAsync(
+                            x => ((x.CurrentStatus == 0 && userOrgIds.Contains(x.OrganizationId)) ||
                                         (x.CurrentStatus == 1 && adminOrgIds.Contains(x.OrganizationSqid)))
-                                        && x.CurrentStatus != 2)
-                            .ToListAsync();
+                                        && x.CurrentStatus != 2);
                     }
                 }
             }

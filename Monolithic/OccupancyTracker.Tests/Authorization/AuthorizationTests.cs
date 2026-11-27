@@ -30,6 +30,8 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
+using OccupancyTracker.IRepository;
+using OccupancyTracker.Repository;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 
@@ -887,7 +889,7 @@ public class AuthorizationTests
         var factory = new ContextFactory();
         await using (var context = factory.CreateDbContext())
             await context.Database.EnsureCreatedAsync();
-        var authorization = new OccAuthorizationService(factory, new TestSqids(), null!);
+        var authorization = new OccAuthorizationService(factory, new TestSqids());
 
         var firstLogin = new AuthenticationState(Principal(
             new Claim(ClaimTypes.NameIdentifier, "auth0|first"),
@@ -1327,7 +1329,7 @@ public class AuthorizationTests
             await db.SaveChangesAsync();
 
             var sqids = new TestSqids();
-            var legacy = new OccAuthorizationService(factory, sqids, null!);
+            var legacy = new OccAuthorizationService(factory, sqids);
             var accessor = new TestHttpContextAccessor { HttpContext = new DefaultHttpContext() };
             var request = new RequestAuthorizationService(accessor, factory, legacy, sqids);
             return new Fixture { Factory = factory, Legacy = legacy, Accessor = accessor,
@@ -1423,7 +1425,7 @@ public class AuthorizationTests
 
     }
 
-    private sealed class ContextFactory : IDbContextFactory<OccupancyContext>
+    private sealed class ContextFactory : IDbContextFactory<OccupancyContext>, IRepositorySessionFactory
     {
         private readonly SqliteConnection connection;
         private readonly DbContextOptions<OccupancyContext> options;
@@ -1437,6 +1439,11 @@ public class AuthorizationTests
         }
 
         public OccupancyContext CreateDbContext() => new(options);
+        public IRepositorySession Create() => new RepositorySessionFactory(this).Create();
+        public Task<IRepositorySession> CreateAsync(CancellationToken cancellationToken = default) =>
+            new RepositorySessionFactory(this).CreateAsync(cancellationToken);
+        public bool IsConcurrencyConflict(Exception exception) =>
+            new RepositorySessionFactory(this).IsConcurrencyConflict(exception);
     }
 
     private sealed class TestSqids : ISqidsEncoderFactory
