@@ -8,6 +8,6 @@ When my job was eliminated in 2024, I realized that this application would be a 
 So I decided to push out a monolithic Blazor server application, using 
 * [MudBlazor](https://mudblazor.com/) for the UI
 * [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) for data store 
-* [Auth0]([https://www.okta.com/](https://auth0.com/)) for authentication
+* OpenID Connect for authentication
 * [SendGrid] (https://sendgrid.com/en-us) for emails
 

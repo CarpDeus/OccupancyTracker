@@ -6,11 +6,9 @@ To begin you need to log in or register. Do do that, press the Login/Register bu
 
 ![RegisterLogin](https://github.com/user-attachments/assets/a61fb28c-5211-4dd0-9f85-91aa9e39b4d1)
 
-This will take you to the Auth0 login screen:
-
-![OktaLogin](https://github.com/user-attachments/assets/b0cf3b31-b1bb-47f7-9c56-3891b526b797)
-
-From here you can either create an acocunt using an email address and password or use a GMail Account to register. Once you have completed that, you will be taken to the profile editor page.
+This takes you to the configured identity provider's login screen. Sign in or
+register according to your provider's instructions. Once you have completed
+that, you will be taken to the profile editor page if your profile is incomplete.
 
 ## Profile Editor
 The profile editor has the required fields marked. Once the are all filled in, then you have access to the system.

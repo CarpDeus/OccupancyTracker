@@ -10,17 +10,23 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
@@ -135,7 +141,6 @@ public class AuthorizationTests
         var fixture = await Fixture.CreateAsync();
         using var rsa = RSA.Create(2048);
         var key = new RsaSecurityKey(rsa) { KeyId = "test-key" };
-        var userInfo = new UserInfoHandler();
         var cache = new FakeAdminUtils();
         const string issuer = "https://issuer.example/";
         const string audience = "https://api.example/";
@@ -145,13 +150,23 @@ public class AuthorizationTests
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Auth0:Domain"] = "issuer.example",
-                    ["Auth0:Audience"] = audience,
+                    ["Oidc:Authority"] = "https://issuer.example",
+                    ["Oidc:ClientId"] = "test-client",
+                    ["Oidc:ClientSecret"] = "test-secret",
+                    ["Oidc:CallbackPath"] = "/signin-oidc",
+                    ["Oidc:PublicOrigin"] = "https://api.example",
+                    ["Oidc:UiCallback"] = "https://ui.example/sso-callback",
+                    ["Oidc:SuperAdminGroup"] = "admins",
+                    ["Jwt:Issuer"] = issuer,
+                    ["Jwt:Audience"] = audience,
+                    ["Jwt:SigningKey"] = Convert.ToBase64String(new byte[32]),
+                    ["DataProtection:KeyPath"] = Path.Combine(Path.GetTempPath(), "occupancy-test-keys"),
                     ["OccupancyDomain"] = "occupancy.example",
                     ["ConnectionStrings:Occupancy"] = "Server=unused;Database=unused;TrustServerCertificate=True"
                 }));
             builder.ConfigureServices(services =>
             {
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                 foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) &&
                     (d.ImplementationType == typeof(DatabaseInitializationService) ||
                      d.ImplementationType == typeof(OccupancyLogProcessor) ||
@@ -165,14 +180,12 @@ public class AuthorizationTests
                 services.AddSingleton<IOccAuthorizationService>(fixture.Legacy);
                 services.RemoveAll<IAdminUtilsService>();
                 services.AddSingleton<IAdminUtilsService>(cache);
-                services.AddHttpClient("auth0-userinfo").ConfigurePrimaryHttpMessageHandler(() => userInfo);
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
-                    options.Configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                    options.Configuration.SigningKeys.Add(key);
                     options.TokenValidationParameters.ValidIssuer = issuer;
                     options.TokenValidationParameters.ValidAudience = audience;
                     options.TokenValidationParameters.IssuerSigningKey = key;
+                    options.TokenValidationParameters.ValidAlgorithms = [SecurityAlgorithms.RsaSha256];
                     options.TokenValidationParameters.ClockSkew = TimeSpan.Zero;
                 });
             });
@@ -197,7 +210,6 @@ public class AuthorizationTests
         cache.RequestCount.Should().Be(0);
         (await client.GetAsync("/api/organizations/org:1/users")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await client.PostAsJsonAsync("/api/me/invitations/redeem", new { invitationCode = "invite:1:1" })).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await client.PostAsync("/api/me/bootstrap", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await client.GetAsync("/api/trackers/public-counter")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync("/api/trackers/private-counter")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -290,13 +302,6 @@ public class AuthorizationTests
         (await client.GetAsync($"/api/trackers/{newEntrance.EntranceCounterInstanceSqid}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.PostAsJsonAsync($"{entrancePath}/status", new { fromStatus = 1, toStatus = 0 })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.PostAsJsonAsync($"{entrancePath}/status", new { fromStatus = 0, toStatus = 2 })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        userInfo.Subject = "auth0|bob";
-        (await client.PostAsync("/api/me/bootstrap", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        userInfo.Subject = "auth0|alice";
-        var bootstrap = await client.PostAsync("/api/me/bootstrap", null);
-        bootstrap.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await bootstrap.Content.ReadFromJsonAsync<UserInformation>())!.UserInformationSqid.Should().Be("user:1");
-        userInfo.Authorization?.Scheme.Should().Be("Bearer");
         var profile = await client.GetFromJsonAsync<UserInformation>("/api/me");
         profile!.UserInformationSqid = "user:2";
         (await client.PutAsJsonAsync("/api/me", profile)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -310,15 +315,6 @@ public class AuthorizationTests
         saved!.UserInformationId.Should().Be(1);
         saved.IsSuperAdmin.Should().BeFalse();
         saved.FirstName.Should().Be("Changed");
-        userInfo.Subject = "auth0|new";
-        userInfo.EmailVerified = false;
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|new", audience, DateTime.UtcNow.AddMinutes(5)));
-        (await client.PostAsync("/api/me/bootstrap", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        await using (var context = fixture.Factory.CreateDbContext())
-            (await context.UserSsoInformation.AnyAsync(x => x.Auth0Identifier == "auth0|new")).Should().BeFalse();
-        userInfo.EmailVerified = true;
-        (await client.PostAsync("/api/me/bootstrap", null)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await client.GetFromJsonAsync<UserInformation>("/api/me"))!.UserInformationSqid.Should().Be("user:1");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token("auth0|alice", audience, DateTime.UtcNow.AddMinutes(5)));
         (await client.GetAsync("/api/trackers/private-counter")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.PostAsJsonAsync("/api/trackers/private-counter/count", new { delta = 2 })).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -886,7 +882,7 @@ public class AuthorizationTests
     }
 
     [Test]
-    public async Task GetFromStateAsync_FirstCreatedUserBecomesSuperAdmin_AndLaterUsersDoNot()
+    public async Task GetFromStateAsync_FirstUserIsNotSuperAdmin_AndRoleTracksCurrentClaims()
     {
         var factory = new ContextFactory();
         await using (var context = factory.CreateDbContext())
@@ -901,8 +897,7 @@ public class AuthorizationTests
             new Claim("email_verified", "true")));
         var firstUser = await authorization.GetFromStateAsync(firstLogin);
 
-        firstUser!.IsSuperAdmin.Should().BeTrue();
-        firstLogin.User.IsInRole("SuperAdmin").Should().BeTrue();
+        firstUser!.IsSuperAdmin.Should().BeFalse();
 
         var secondLogin = new AuthenticationState(Principal(
             new Claim(ClaimTypes.NameIdentifier, "auth0|second"),
@@ -914,13 +909,217 @@ public class AuthorizationTests
 
         secondUser!.IsSuperAdmin.Should().BeFalse();
 
+        var adminLogin = new AuthenticationState(Principal(
+            new Claim(ClaimTypes.NameIdentifier, "auth0|first"),
+            new Claim(ClaimTypes.Email, "first@example.com"),
+            new Claim("https://occupancy-tracker.secure-scalable.solutions/roles", "SuperAdmin"),
+            new Claim("email_verified", "true")));
+        (await authorization.GetFromStateAsync(adminLogin))!.IsSuperAdmin.Should().BeTrue();
         var returningFirstLogin = new AuthenticationState(Principal(
             new Claim(ClaimTypes.NameIdentifier, "auth0|first"),
             new Claim(ClaimTypes.Email, "first@example.com"),
             new Claim("email_verified", "true")));
         var returningFirstUser = await authorization.GetFromStateAsync(returningFirstLogin);
-        returningFirstUser!.IsSuperAdmin.Should().BeTrue();
+        returningFirstUser!.IsSuperAdmin.Should().BeFalse();
     }
+
+    [Test]
+    public async Task SsoExchange_VerifiedEmailLinksExistingUser_AndGroupsControlAdmin()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var options = TestSsoOptions("member_of");
+        var protection = new EphemeralDataProtectionProvider();
+        var firstReplica = new SsoService(options, fixture.Legacy, fixture.Factory, protection);
+        var secondReplica = new SsoService(options, fixture.Legacy, fixture.Factory, protection);
+        var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        var principal = Principal(new Claim("sub", "provider-subject"), new Claim("email", "alice@example.com"),
+            new Claim("email_verified", "true"), new Claim("member_of", "[\"staff\",\"admins\"]"));
+
+        var code = await firstReplica.CreateExchangeAsync(principal, SsoOptions.Hash(verifier));
+        (await secondReplica.ExchangeAsync(code, Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32)))).Should().BeNull();
+        var result = await secondReplica.ExchangeAsync(code, verifier);
+        result.Should().NotBeNull();
+        (await firstReplica.ExchangeAsync(code, verifier)).Should().BeNull();
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(result!.AccessToken);
+        jwt.Claims.Where(c => c.Type == "groups").Select(c => c.Value).Should().BeEquivalentTo("staff", "admins");
+        jwt.Claims.Should().Contain(c => c.Type == "https://occupancy-tracker.secure-scalable.solutions/roles" && c.Value == "SuperAdmin");
+        await using (var context = fixture.Factory.CreateDbContext())
+        {
+            var linked = await context.UserSsoInformation.SingleAsync(x => x.Auth0Identifier == "oidc|" + SsoOptions.Hash(options.Authority + "\nprovider-subject"));
+            linked.UserInformationId.Should().Be(1);
+        }
+
+        var withoutAdmin = Principal(new Claim("sub", "provider-subject"), new Claim("email", "alice@example.com"),
+            new Claim("member_of", "staff"),
+            new Claim("https://occupancy-tracker.secure-scalable.solutions/roles", "SuperAdmin"));
+        var nextCode = await firstReplica.CreateExchangeAsync(withoutAdmin, SsoOptions.Hash(verifier));
+        var next = await secondReplica.ExchangeAsync(nextCode, verifier);
+        new JwtSecurityTokenHandler().ReadJwtToken(next!.AccessToken).Claims
+            .Should().NotContain(c => c.Type == "https://occupancy-tracker.secure-scalable.solutions/roles");
+        await using var db = fixture.Factory.CreateDbContext();
+        (await db.UserInformation.SingleAsync(x => x.UserInformationId == 1)).IsSuperAdmin.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task SsoExchange_UnverifiedNewIdentityAndExpiredCode_AreRejected()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var service = new SsoService(TestSsoOptions(), fixture.Legacy, fixture.Factory, new EphemeralDataProtectionProvider());
+        var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        var unverified = Principal(new Claim("sub", "new"), new Claim("email", "alice@example.com"));
+        await FluentActions.Awaiting(() => service.CreateExchangeAsync(unverified, SsoOptions.Hash(verifier)))
+            .Should().ThrowAsync<SecurityException>();
+        var verified = Principal(new Claim("sub", "new"), new Claim("email", "alice@example.com"), new Claim("email_verified", "true"));
+        var code = await service.CreateExchangeAsync(verified, SsoOptions.Hash(verifier));
+        await using (var db = fixture.Factory.CreateDbContext())
+        {
+            var entry = await db.SsoExchangeCodes.SingleAsync();
+            entry.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+        (await service.ExchangeAsync(code, verifier)).Should().BeNull();
+    }
+
+    [Test]
+    public async Task Api_OidcCodeFlow_UsesUserInfoGroupsAndExchangesOnlyOnce()
+    {
+        var fixture = await Fixture.CreateAsync();
+        using var rsa = RSA.Create(2048);
+        var key = new RsaSecurityKey(rsa) { KeyId = "provider-key" };
+        var provider = new OidcProviderHandler(key);
+        const string issuer = "https://identity.example";
+        const string audience = "occupancy-api";
+        var signingKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        using var app = new WebApplicationFactory<global::Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Development");
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Oidc:Authority"] = issuer, ["Oidc:ClientId"] = "client",
+                    ["Oidc:ClientSecret"] = "secret", ["Oidc:CallbackPath"] = "/signin-oidc",
+                    ["Oidc:PublicOrigin"] = "https://localhost", ["Oidc:UiCallback"] = "https://ui.example/sso-callback",
+                    ["Oidc:SuperAdminGroup"] = "admins", ["Jwt:Issuer"] = "occupancy", ["Jwt:Audience"] = audience,
+                    ["Jwt:SigningKey"] = signingKey, ["DataProtection:KeyPath"] = Path.Combine(Path.GetTempPath(), "occupancy-test-keys"),
+                    ["ConnectionStrings:Occupancy"] = "Server=unused;Database=unused;TrustServerCertificate=True"
+                }));
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) &&
+                    (d.ImplementationType == typeof(DatabaseInitializationService) ||
+                     d.ImplementationType == typeof(OccupancyLogProcessor) ||
+                     d.ImplementationType == typeof(OccupancyEmailProcessor))).ToList())
+                    services.Remove(descriptor);
+                services.RemoveAll<IDbContextFactory<OccupancyContext>>();
+                services.AddSingleton<IDbContextFactory<OccupancyContext>>(fixture.Factory);
+                services.RemoveAll<IOccAuthorizationService>();
+                services.AddSingleton<IOccAuthorizationService>(fixture.Legacy);
+                services.PostConfigure<OpenIdConnectOptions>("oidc", options =>
+                {
+                    options.Configuration = new OpenIdConnectConfiguration
+                    {
+                        Issuer = issuer, AuthorizationEndpoint = issuer + "/authorize",
+                        TokenEndpoint = issuer + "/token", UserInfoEndpoint = issuer + "/userinfo"
+                    };
+                    options.Configuration.SigningKeys.Add(key);
+                    options.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(options.Configuration);
+                    options.Backchannel = new HttpClient(provider);
+                });
+            });
+        });
+        using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false, HandleCookies = true
+        });
+        var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        var start = await client.GetAsync("/api/auth/sign-in?challenge=" + SsoOptions.Hash(verifier));
+        start.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var authorizationUrl = start.Headers.Location!;
+        var parameters = QueryHelpers.ParseQuery(authorizationUrl.Query);
+        parameters["redirect_uri"].ToString().Should().Be("https://localhost/signin-oidc");
+        parameters["scope"].ToString().Should().Contain("groups");
+        provider.Nonce = parameters["nonce"].ToString();
+        var callback = await client.GetAsync("/signin-oidc?code=provider-code&state=" + Uri.EscapeDataString(parameters["state"].ToString()));
+        callback.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var complete = await client.GetAsync(callback.Headers.Location);
+        complete.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var code = QueryHelpers.ParseQuery(complete.Headers.Location!.Query)["code"].ToString();
+        var exchange = await client.PostAsJsonAsync("/api/auth/exchange", new { code, verifier });
+        exchange.StatusCode.Should().Be(HttpStatusCode.OK);
+        var session = await exchange.Content.ReadFromJsonAsync<SsoExchangeResponse>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
+        (await client.GetFromJsonAsync<UserInformation>("/api/me"))!.IsSuperAdmin.Should().BeTrue();
+        (await client.PostAsJsonAsync("/api/auth/exchange", new { code, verifier })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        provider.UserInfoSubject = "another-subject";
+        var secondStart = await client.GetAsync("/api/auth/sign-in?challenge=" + SsoOptions.Hash(verifier));
+        var secondParameters = QueryHelpers.ParseQuery(secondStart.Headers.Location!.Query);
+        provider.Nonce = secondParameters["nonce"].ToString();
+        var mismatched = await client.GetAsync("/signin-oidc?code=provider-code&state=" + Uri.EscapeDataString(secondParameters["state"].ToString()));
+        mismatched.StatusCode.Should().NotBe(HttpStatusCode.Redirect);
+    }
+
+    [Test]
+    public void SsoExchangeMigration_MatchesSqlServerModel()
+    {
+        var dbOptions = new DbContextOptionsBuilder<OccupancyContext>()
+            .UseSqlServer("Server=unused;Database=unused;TrustServerCertificate=True").Options;
+        using var db = new OccupancyContext(dbOptions);
+        db.Database.HasPendingModelChanges().Should().BeFalse();
+        db.GetService<IMigrator>().GenerateScript().Should().Contain("CREATE TABLE [SsoExchangeCodes]");
+    }
+
+    [Test]
+    public async Task Ui_LoginBindsCallbackToBrowser_AndCreatesLocalSession()
+    {
+        var oldApi = Environment.GetEnvironmentVariable("Api__BaseAddress");
+        var oldKeys = Environment.GetEnvironmentVariable("DataProtection__KeyPath");
+        try
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
+            var handler = new ExchangeHandler();
+            using var app = new WebApplicationFactory<OccupancyTracker.Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Development");
+                builder.ConfigureServices(services =>
+                {
+                    services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                    services.AddHttpClient("sso").ConfigurePrimaryHttpMessageHandler(() => handler);
+                });
+            });
+            using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://ui.example"), AllowAutoRedirect = false, HandleCookies = true
+            });
+            (await client.GetAsync("/sso-callback?code=missing")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await client.GetAsync("/Account/Login?returnUrl=%2F%2Fevil.example")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var start = await client.GetAsync("/Account/Login?returnUrl=%2Forgs");
+            start.StatusCode.Should().Be(HttpStatusCode.Redirect);
+            start.Headers.Location!.Host.Should().Be("api.example");
+            handler.Challenge = QueryHelpers.ParseQuery(start.Headers.Location.Query)["challenge"].ToString();
+            var complete = await client.GetAsync("/sso-callback?code=valid");
+            complete.StatusCode.Should().Be(HttpStatusCode.Redirect);
+            complete.Headers.Location!.OriginalString.Should().Be("/orgs");
+            complete.Headers.GetValues("Set-Cookie").Should().Contain(x => x.Contains(".AspNetCore.Cookies="));
+            (await client.GetAsync("/sso-callback?code=valid")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", oldApi);
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", oldKeys);
+        }
+    }
+
+    private static SsoOptions TestSsoOptions(string groupClaim = "groups") => new()
+    {
+        Authority = "https://identity.example", ClientId = "client", ClientSecret = "secret",
+        CallbackPath = "/signin-oidc", PublicOrigin = new Uri("https://api.example"), UiCallback = new Uri("https://ui.example/sso-callback"),
+        GroupClaim = groupClaim, SuperAdminGroup = "admins", Scopes = ["openid", "email", "groups"],
+        Issuer = "occupancy", Audience = "api", SigningKey = RandomNumberGenerator.GetBytes(32), ExpiryMinutes = 60
+    };
 
     [Test]
     public void ResourceAuthorization_UnknownAndOutOfScopeRoles_ReturnsNoAccess()
@@ -989,6 +1188,54 @@ public class AuthorizationTests
         public HttpContext? HttpContext { get; set; }
     }
 
+    private sealed class OidcProviderHandler(RsaSecurityKey key) : HttpMessageHandler
+    {
+        public string Nonce { get; set; } = "";
+        public string UserInfoSubject { get; set; } = "provider-subject";
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/token")
+            {
+                var token = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
+                    "https://identity.example", "client",
+                    [new Claim("sub", "provider-subject"), new Claim("nonce", Nonce),
+                        new Claim("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)],
+                    expires: DateTime.UtcNow.AddMinutes(5),
+                    signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { access_token = "provider-token", token_type = "Bearer", id_token = token })
+                });
+            }
+
+            if (request.RequestUri.AbsolutePath == "/userinfo")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { sub = UserInfoSubject, email = "alice@example.com",
+                        email_verified = true, groups = new[] { "staff", "admins" } })
+                });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
+    private sealed class ExchangeHandler : HttpMessageHandler
+    {
+        public string Challenge { get; set; } = "";
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var payload = await request.Content!.ReadFromJsonAsync<SsoExchangeRequest>(cancellationToken);
+            if (request.RequestUri!.AbsolutePath != "/api/auth/exchange" || payload?.Code != "valid" ||
+                SsoOptions.Hash(payload.Verifier) != Challenge)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new SsoExchangeResponse("api-token", DateTime.UtcNow.AddMinutes(10), true))
+            };
+        }
+    }
+
     private sealed class FakeAdminUtils : IAdminUtilsService
     {
         public int RequestCount { get; private set; }
@@ -1019,21 +1266,6 @@ public class AuthorizationTests
             return new HttpResponseMessage(Status) { Content = JsonContent.Create(ResponseBody) };
         }
 
-    }
-
-    private sealed class UserInfoHandler : HttpMessageHandler
-    {
-        public string Subject { get; set; } = "auth0|alice";
-        public bool EmailVerified { get; set; } = true;
-        public AuthenticationHeaderValue? Authorization { get; private set; }
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Authorization = request.Headers.Authorization;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(new { sub = Subject, email = "alice@example.com", email_verified = EmailVerified })
-            });
-        }
     }
 
     private sealed class ContextFactory : IDbContextFactory<OccupancyContext>

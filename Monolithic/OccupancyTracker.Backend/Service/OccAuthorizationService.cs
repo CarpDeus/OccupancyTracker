@@ -111,7 +111,6 @@ namespace OccupancyTracker.Service
 
             if (userInformation == null)
             {
-                var isFirstUser = !await _context.UserInformation.AnyAsync();
                 userInformation = new UserInformation(sso.UserSsoInformationId)
                 {
                     EmailAddress = emailAddress,
@@ -120,7 +119,7 @@ namespace OccupancyTracker.Service
                     UserSsoInformationIdLastLoggedIn = sso.UserSsoInformationId,
                     CreatedBy = -1,
                     CreatedDate = DateTime.Now,
-                    IsSuperAdmin = isSuperAdmin || isFirstUser
+                    IsSuperAdmin = isSuperAdmin
                 };
 
                 _context.UserInformation.Add(userInformation);
@@ -133,7 +132,7 @@ namespace OccupancyTracker.Service
             else
             {
                 userInformation.UserSsoInformationIdLastLoggedIn = sso.UserSsoInformationId;
-                userInformation.IsSuperAdmin = userInformation.IsSuperAdmin || isSuperAdmin;
+                userInformation.IsSuperAdmin = isSuperAdmin;
                 _context.UserInformation.Update(userInformation);
                 await _context.SaveChangesAsync();
             }

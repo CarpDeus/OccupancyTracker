@@ -18,6 +18,7 @@ namespace OccupancyTracker.Models
         public DbSet<OrganizationUser> OrganizationUsers { get; set; }
         public DbSet<OrganizationUserRole> OrganizationUserRoles { get; set; }
         public DbSet<UserSsoInformation> UserSsoInformation { get; set; }
+        public DbSet<SsoExchangeCode> SsoExchangeCodes { get; set; }
         public DbSet<UserInformation> UserInformation { get; set; }
         public DbSet<InvalidSecurityAttempt> InvalidSecurityAttempt { get; set; }
         public DbSet<EmailProcessorQueue> EmailProcessorQueue { get; set; }
@@ -43,6 +44,7 @@ namespace OccupancyTracker.Models
             modelBuilder.Entity<EntranceCounter>().Property(c => c.EntranceCounterSqid).UseCollation("SQL_Latin1_General_CP1_CS_AS");
             modelBuilder.Entity<OrganizationInvitationCodes>().Property(c => c.InvitationCode).UseCollation("SQL_Latin1_General_CP1_CS_AS");
             modelBuilder.Entity<UserInformation>().Property(c => c.UserInformationSqid).UseCollation("SQL_Latin1_General_CP1_CS_AS");
+            modelBuilder.Entity<SsoExchangeCode>().Property(c => c.CodeHash).UseCollation("SQL_Latin1_General_CP1_CS_AS");
 
             // Relationships
             //modelBuilder.Entity<Location>().HasOne(p => p.Organization).WithMany(b => b.Location).HasForeignKey(p => p.OrganizationId);
