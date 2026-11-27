@@ -962,6 +962,31 @@ public class AuthorizationTests
     }
 
     [Test]
+    public async Task SsoExchange_MappedSuperAdmin_AssumesEmailVerifiedButStillRequiresEmail()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var service = new SsoService(TestSsoOptions(), fixture.Legacy, fixture.Factory, new EphemeralDataProtectionProvider());
+        var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        foreach (var emailVerified in new[] { "", "false" })
+        {
+            var principal = Principal(new Claim("sub", "admin-" + emailVerified),
+                new Claim("email", "alice@example.com"), new Claim("groups", "admins"));
+            if (emailVerified != "")
+                principal.AddIdentity(new ClaimsIdentity([new Claim("email_verified", emailVerified)], "test"));
+            var code = await service.CreateExchangeAsync(principal, SsoOptions.Hash(verifier));
+            (await service.ExchangeAsync(code, verifier)).Should().NotBeNull();
+        }
+
+        var missingEmail = Principal(new Claim("sub", "admin-without-email"), new Claim("groups", "admins"));
+        await FluentActions.Awaiting(() => service.CreateExchangeAsync(missingEmail, SsoOptions.Hash(verifier)))
+            .Should().ThrowAsync<SecurityException>();
+        var unmappedRole = Principal(new Claim("sub", "unmapped-admin"), new Claim("email", "alice@example.com"),
+            new Claim("https://occupancy-tracker.secure-scalable.solutions/roles", "SuperAdmin"));
+        await FluentActions.Awaiting(() => service.CreateExchangeAsync(unmappedRole, SsoOptions.Hash(verifier)))
+            .Should().ThrowAsync<SecurityException>();
+    }
+
+    [Test]
     public async Task SsoExchange_UnverifiedNewIdentityAndExpiredCode_AreRejected()
     {
         var fixture = await Fixture.CreateAsync();

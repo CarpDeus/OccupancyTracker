@@ -74,7 +74,8 @@ callback. `UiCallback` is a single trusted, absolute UI URL and must end in
 `/sso-callback`. The API never accepts a caller-provided UI return URL.
 `Authority` uses the provider's discovery URL base. Keep it unchanged to retain
 existing subject links; after changing providers, verified email is required to
-link the new subject to an existing account.
+link the new subject to an existing account, except for configured SuperAdmin
+group members whose email is assumed verified.
 
 Configure the provider to return `email`, `email_verified`, and the configured
 `GroupClaim` in the ID token or UserInfo response. The group claim may be an
@@ -86,6 +87,14 @@ Only the configured group grants SuperAdmin; existing stored grants and the
 first-user bootstrap do not grant it. Membership is captured on sign-in and
 remains effective until the API token expires. Organization and location roles
 are managed locally.
+
+Membership in the configured `SuperAdminGroup` also establishes email
+verification for account linking when `email_verified` is false or absent.
+A non-empty email is still required. Other users must supply
+`email_verified: true`. This trusts the provider's SuperAdmin group assignment
+to authorize linking an existing account by email; restrict who can assign
+membership to that group. Stored privileges and unmapped provider role claims
+do not bypass verification.
 
 Generate `Jwt:SigningKey` from at least 32 cryptographically random bytes and
 base64-encode it. Keep it private and identical across API replicas. Tokens
