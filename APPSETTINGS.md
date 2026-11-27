@@ -87,6 +87,32 @@ first-user bootstrap do not grant it. Membership is captured on sign-in and
 remains effective until the API token expires. Organization and location roles
 are managed locally.
 
+A 403 at `/api/auth/callback` means OIDC authentication completed but local
+account resolution was rejected. Check the API's `OidcSignIn` warning using
+the response's `traceId`. A new subject requires a non-empty email and
+`email_verified: true`; inactive local accounts are also rejected. Missing
+groups alone do not prevent sign-in, but grant no SuperAdmin access.
+For Authentik, check the selected email scope/property mapping and ensure it
+reflects actual email verification. Since Authentik 2025.10 the default email
+mapping returns `email_verified: false`. Create a custom Scope Mapping with
+scope name `email`, then replace the provider's default email mapping with it
+(do not select both). If your verification flow records the confirmed address
+in `email_verified_address`, use:
+
+```python
+email = request.user.email
+return {
+    "email": email,
+    "email_verified": bool(email and request.user.attributes.get("email_verified_address") == email),
+}
+```
+
+The attribute must be populated by a real verification process, not by this
+mapping. Follow Authentik's **Verify email addresses** guide to configure that
+process. Do not hard-code `email_verified` to true
+for unverified users or disable this check: verified email is used to link
+existing accounts.
+
 Generate `Jwt:SigningKey` from at least 32 cryptographically random bytes and
 base64-encode it. Keep it private and identical across API replicas. Tokens
 are signed with HS256, checked for issuer, audience and expiry, and have a

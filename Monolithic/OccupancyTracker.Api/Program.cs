@@ -144,8 +144,10 @@ app.MapGet("/api/auth/sign-in", (string? challenge) =>
     return Results.Challenge(properties, ["oidc"]);
 });
 
-app.MapGet("/api/auth/callback", async (HttpContext context, SsoService service, SsoOptions options) =>
+app.MapGet("/api/auth/callback", async (HttpContext context, SsoService service, SsoOptions options, ILoggerFactory loggers) =>
 {
+    context.Response.Headers.CacheControl = "no-store";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
     var external = await context.AuthenticateAsync("external");
     await context.SignOutAsync("external");
     if (!external.Succeeded || external.Principal == null ||
@@ -155,11 +157,18 @@ app.MapGet("/api/auth/callback", async (HttpContext context, SsoService service,
     try
     {
         var code = await service.CreateExchangeAsync(external.Principal, challenge);
-        context.Response.Headers.CacheControl = "no-store";
-        context.Response.Headers["Referrer-Policy"] = "no-referrer";
         return Results.Redirect(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(options.UiCallback.ToString(), "code", code));
     }
-    catch (SecurityException) { return Results.Forbid(); }
+    catch (SecurityException exception)
+    {
+        loggers.CreateLogger("OidcSignIn").LogWarning(
+            "OIDC account resolution rejected ({TraceId}): {Reason}", context.TraceIdentifier, exception.Message);
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Sign-in could not be completed.",
+            detail: "The identity provider authenticated you, but account resolution was rejected. Ask the administrator to check the API sign-in logs.",
+            extensions: new Dictionary<string, object?> { ["traceId"] = context.TraceIdentifier });
+    }
 });
 
 app.MapPost("/api/auth/exchange", async (SsoExchangeRequest request, SsoService service, HttpContext context) =>

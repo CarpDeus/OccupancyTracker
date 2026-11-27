@@ -1059,6 +1059,21 @@ public class AuthorizationTests
         provider.Nonce = secondParameters["nonce"].ToString();
         var mismatched = await client.GetAsync("/signin-oidc?code=provider-code&state=" + Uri.EscapeDataString(secondParameters["state"].ToString()));
         mismatched.StatusCode.Should().NotBe(HttpStatusCode.Redirect);
+
+        provider.Subject = provider.UserInfoSubject = "unlinked-subject";
+        provider.EmailVerified = false;
+        var unverifiedStart = await client.GetAsync("/api/auth/sign-in?challenge=" + SsoOptions.Hash(verifier));
+        var unverifiedParameters = QueryHelpers.ParseQuery(unverifiedStart.Headers.Location!.Query);
+        provider.Nonce = unverifiedParameters["nonce"].ToString();
+        var unverifiedCallback = await client.GetAsync("/signin-oidc?code=provider-code&state=" + Uri.EscapeDataString(unverifiedParameters["state"].ToString()));
+        unverifiedCallback.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        var rejected = await client.GetAsync(unverifiedCallback.Headers.Location);
+        rejected.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        rejected.Headers.CacheControl!.NoStore.Should().BeTrue();
+        using var problem = JsonDocument.Parse(await rejected.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("traceId").GetString().Should().NotBeNullOrEmpty();
+        await using var db = fixture.Factory.CreateDbContext();
+        (await db.SsoExchangeCodes.CountAsync()).Should().Be(0);
     }
 
     [Test]
@@ -1191,7 +1206,9 @@ public class AuthorizationTests
     private sealed class OidcProviderHandler(RsaSecurityKey key) : HttpMessageHandler
     {
         public string Nonce { get; set; } = "";
+        public string Subject { get; set; } = "provider-subject";
         public string UserInfoSubject { get; set; } = "provider-subject";
+        public bool EmailVerified { get; set; } = true;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -1199,7 +1216,7 @@ public class AuthorizationTests
             {
                 var token = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
                     "https://identity.example", "client",
-                    [new Claim("sub", "provider-subject"), new Claim("nonce", Nonce),
+                    [new Claim("sub", Subject), new Claim("nonce", Nonce),
                         new Claim("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)],
                     expires: DateTime.UtcNow.AddMinutes(5),
                     signingCredentials: new SigningCredentials(key, SecurityAlgorithms.RsaSha256)));
@@ -1213,7 +1230,7 @@ public class AuthorizationTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(new { sub = UserInfoSubject, email = "alice@example.com",
-                        email_verified = true, groups = new[] { "staff", "admins" } })
+                        email_verified = EmailVerified, groups = new[] { "staff", "admins" } })
                 });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         }
