@@ -62,7 +62,9 @@ Membership is evaluated at sign-in and remains in the issued token until expiry;
 the first user is not automatically an administrator. Organization and location
 roles remain locally managed.
 Never accept a principal, actor ID, or `IsSuperAdmin` value from an API request
-body. New SSO account links require an OIDC-verified email address. Existing
+body. New SSO account links require an OIDC-verified email address, except that
+configured SuperAdmin group members' emails are assumed verified. A non-empty
+email remains required. Existing
 Auth0 accounts can be linked by verified email when signing in with the new
 provider. The provider must supply stable subject identifiers, verified emails
 and group claims in its ID token or UserInfo response.
