@@ -1,5 +1,4 @@
-﻿using Enyim.Caching;
-using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 
@@ -10,18 +9,18 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class MarkdownTextService : IMarkdownTextService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly IRepositorySessionFactory _repositoryFactory;
+        private readonly ICacheRepository _cacheRepository;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MarkdownTextService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory for creating database contexts.</param>
-        /// <param name="memcachedClient">The Memcached client for caching.</param>
-        public MarkdownTextService(IDbContextFactory<OccupancyContext> contextFactory, IMemcachedClient memcachedClient)
+        /// <param name="repositoryFactory">The factory for creating repository sessions.</param>
+        /// <param name="cacheRepository">The cache repository.</param>
+        public MarkdownTextService(IRepositorySessionFactory repositoryFactory, ICacheRepository cacheRepository)
         {
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
         }
 
         /// <summary>
@@ -33,21 +32,12 @@ namespace OccupancyTracker.Service
         /// <exception cref="KeyNotFoundException">Thrown when the Markdown text is not found.</exception>
         public async Task<MarkdownText> GetAsync(string PageName, string TextIdentifier)
         {
-            /* var key = $"MarkdownText_{PageName}_{TextIdentifier}";
-            var markdownText = await _memcachedClient.GetAsync<MarkdownText>(key);
-            if (markdownText == null)
-            { */
-            using var context = _contextFactory.CreateDbContext();
+            using var context = _repositoryFactory.Create();
             var markdownText = await context.MarkdownText.FirstOrDefaultAsync(x => x.PageName == PageName && x.TextIdentifier == TextIdentifier && x.CurrentStatus == Statuses.DataStatus.Active.Id);
             if (markdownText == null)
             {
                 markdownText = await context.MarkdownText.FirstOrDefaultAsync(x => x.PageName == string.Empty && x.TextIdentifier == TextIdentifier && x.CurrentStatus == Statuses.DataStatus.Active.Id);
             }
-            // if (markdownText != null)
-            // {
-            //     await _memcachedClient.SetAsync(key, markdownText, TimeSpan.FromMinutes(5));
-            // }
-            // }
             if (markdownText == null)
             {
                 throw new KeyNotFoundException($"Markdown Text Not Found - PageName: {PageName}, TextIdentifier: {TextIdentifier}");

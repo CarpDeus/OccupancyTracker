@@ -12,6 +12,8 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
+using OccupancyTracker.IRepository;
+using OccupancyTracker.Repository;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
 
@@ -90,6 +92,9 @@ builder.Services.AddDbContextFactory<OccupancyContext>((services, options) =>
     options.UseSqlServer(connectionString);
 }, ServiceLifetime.Transient);
 builder.Services.AddSingleton<ISqidsEncoderFactory, SqidsEncoderFactory>();
+builder.Services.AddSingleton<IRepositorySessionFactory, RepositorySessionFactory>();
+builder.Services.AddSingleton<IDatabaseMigrator, DatabaseMigrator>();
+builder.Services.AddSingleton<ICacheRepository, CacheRepository>();
 builder.Services.AddSingleton<IOccAuthorizationService, OccAuthorizationService>();
 builder.Services.AddScoped<RequestAuthorizationService>();
 builder.Services.AddScoped<TrackerOperations>();
@@ -99,6 +104,8 @@ builder.Services.AddScoped<OrganizationUserOperations>();
 builder.Services.AddScoped<AdminProfileOperations>();
 builder.Services.AddScoped<IAdminUtilsService, AdminUtilsService>();
 builder.Services.AddScoped<SsoService>();
+builder.Services.AddScoped<PublicContentService>();
+builder.Services.AddScoped<OrganizationListingService>();
 builder.Services.AddTransient<OccupancyDbInitializer>();
 builder.Services.AddSingleton<ISendGridFactory, SendGridFactory>();
 if (builder.Configuration.GetValue("DatabaseInitialization:Enabled", true))
@@ -120,16 +127,9 @@ app.UseEnyimMemcached();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/api/public-content/{page}", async (string page, IDbContextFactory<OccupancyContext> contexts) =>
+app.MapGet("/api/public-content/{page}", async (string page, PublicContentService contentService) =>
 {
-    if (page is not ("privacy" or "terms")) return Results.NotFound();
-    await using var context = await contexts.CreateDbContextAsync();
-    var content = await context.MarkdownText.AsNoTracking()
-        .Where(x => x.PageName == page && x.TextIdentifier == "body" && x.CurrentStatus == Statuses.DataStatus.Active.Id)
-        .Select(x => x.MarkdownContent).FirstOrDefaultAsync();
-    content ??= await context.MarkdownText.AsNoTracking()
-        .Where(x => x.PageName == "" && x.TextIdentifier == "body" && x.CurrentStatus == Statuses.DataStatus.Active.Id)
-        .Select(x => x.MarkdownContent).FirstOrDefaultAsync();
+    var content = await contentService.GetAsync(page);
     return content == null ? Results.NotFound() : Results.Ok(content);
 });
 
@@ -218,27 +218,12 @@ app.MapPost("/api/admin/cache/flush", async (RequestAuthorizationService authori
     return Results.Accepted();
 }).RequireAuthorization();
 
-app.MapGet("/api/organizations", async (RequestAuthorizationService requestAuthorization,
-    IOccAuthorizationService authorization, IDbContextFactory<OccupancyContext> contexts) =>
+app.MapGet("/api/organizations", async (OrganizationListingService organizations) =>
 {
     try
     {
-        var actor = await requestAuthorization.GetCurrentUserAsync();
-        if (actor == null) return Results.Forbid();
-        await using var context = await contexts.CreateDbContextAsync();
-        if (actor.IsSuperAdmin)
-            return Results.Ok(await context.Organizations.AsNoTracking().ToListAsync());
-        var roles = await authorization.GetUserRolesFilteredAsync(actor.UserInformationSqid!);
-        var visible = roles.Select(x => x.OrganizationSqid).Distinct()
-            .Where(id => !string.IsNullOrEmpty(ResourceAuthorization.OrganizationRole(roles, id, false))).ToList();
-        var administrators = visible.Where(id => ResourceAuthorization.OrganizationRole(roles, id, false) ==
-            AuthorizationRecords.Roles.OrganizationAdmin.Name).ToList();
-        var organizations = await context.Organizations.AsNoTracking()
-            .Where(x => x.OrganizationSqid != null &&
-                ((x.CurrentStatus == 0 && visible.Contains(x.OrganizationSqid)) ||
-                 (x.CurrentStatus == 1 && administrators.Contains(x.OrganizationSqid))))
-            .ToListAsync();
-        return Results.Ok(organizations);
+        var result = await organizations.ListAsync();
+        return result == null ? Results.Forbid() : Results.Ok(result);
     }
     catch (SecurityException) { return Results.Forbid(); }
 }).RequireAuthorization();

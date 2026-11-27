@@ -1,6 +1,6 @@
 using System.Security;
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 
@@ -12,7 +12,7 @@ namespace OccupancyTracker.Service;
 /// </summary>
 public sealed class RequestAuthorizationService(
     IHttpContextAccessor httpContextAccessor,
-    IDbContextFactory<OccupancyContext> contextFactory,
+    IRepositorySessionFactory contextFactory,
     IOccAuthorizationService authorizationService,
     ISqidsEncoderFactory sqids) : IRequestAuthorizationService
 {
@@ -20,11 +20,11 @@ public sealed class RequestAuthorizationService(
 
     public async Task<UserInformation?> GetCurrentUserAsync()
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateAsync();
         return await GetCurrentUserAsync(context);
     }
 
-    public async Task<UserInformation?> GetCurrentUserAsync(OccupancyContext context)
+    public async Task<UserInformation?> GetCurrentUserAsync(IRepositorySession context)
     {
         var principal = httpContextAccessor.HttpContext?.User;
         if (principal?.Identity?.IsAuthenticated != true)
@@ -38,14 +38,12 @@ public sealed class RequestAuthorizationService(
         if (subjects.Count != 1 || string.IsNullOrWhiteSpace(subjects[0]))
             throw new SecurityException("The authenticated principal must contain exactly one subject.");
 
-        var sso = await context.UserSsoInformation.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Auth0Identifier == subjects[0]);
+        var sso = await context.UserSsoInformation.SingleOrDefaultDetachedAsync(x => x.Auth0Identifier == subjects[0]);
         if (sso?.UserInformationId is not > 0 ||
             !string.Equals(sso.Auth0Identifier, subjects[0], StringComparison.Ordinal))
             throw new SecurityException("The authenticated subject is not linked to an account.");
 
-        var user = await context.UserInformation.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.UserInformationId == sso.UserInformationId);
+        var user = await context.UserInformation.SingleOrDefaultDetachedAsync(x => x.UserInformationId == sso.UserInformationId);
         if (user == null || user.CurrentStatusId != Statuses.DataStatus.Active.Id ||
             string.IsNullOrEmpty(user.UserInformationSqid))
             throw new SecurityException("The authenticated account is unavailable.");
@@ -60,7 +58,7 @@ public sealed class RequestAuthorizationService(
         if (actor == null || string.IsNullOrEmpty(organizationSqid))
             return string.Empty;
 
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateAsync();
         if (!await context.Organizations.AnyAsync(x => x.OrganizationSqid == organizationSqid))
             return string.Empty;
 
@@ -74,10 +72,8 @@ public sealed class RequestAuthorizationService(
         if (actor == null || string.IsNullOrEmpty(organizationSqid) || string.IsNullOrEmpty(locationSqid))
             return string.Empty;
 
-        await using var context = await contextFactory.CreateDbContextAsync();
-        var location = await context.Locations.AsNoTracking()
-            .Where(x => x.LocationSqid == locationSqid)
-            .Select(x => new { x.OrganizationId }).SingleOrDefaultAsync();
+        await using var context = await contextFactory.CreateAsync();
+        var location = await context.Locations.SingleOrDefaultAsync(x => x.LocationSqid == locationSqid);
         if (location == null || sqids.EncodeOrganizationId(location.OrganizationId) != organizationSqid)
             return string.Empty;
 
@@ -87,35 +83,55 @@ public sealed class RequestAuthorizationService(
 
     public async Task<bool> CanUseCounterAsync(string entranceCounterSqid)
     {
-        await using var context = await contextFactory.CreateDbContextAsync();
+        await using var context = await contextFactory.CreateAsync();
         return await CanUseCounterAsync(context, entranceCounterSqid);
     }
 
-    public async Task<bool> CanUseCounterAsync(OccupancyContext context, string entranceCounterSqid)
+    public async Task<bool> CanUseCounterAsync(IRepositorySession context, string entranceCounterSqid)
     {
         if (string.IsNullOrEmpty(entranceCounterSqid))
             return false;
 
-        var counter = await (from c in context.EntranceCounters.AsNoTracking()
-            join e in context.Entrances.AsNoTracking() on c.EntranceId equals e.EntranceId
-            join l in context.Locations.AsNoTracking() on c.LocationId equals l.LocationId
-            join o in context.Organizations.AsNoTracking() on c.OrganizationId equals o.OrganizationId
-            where c.EntranceCounterSqid == entranceCounterSqid &&
-                e.EntranceCounterInstanceSqid == entranceCounterSqid &&
-                e.LocationId == l.LocationId && e.OrganizationId == o.OrganizationId &&
-                l.OrganizationId == o.OrganizationId &&
-                c.CurrentStatus == 0 && e.CurrentStatus == 0 && l.CurrentStatus == 0 && o.CurrentStatus == 0
-            select new { c.RequiresAuthentication, o.OrganizationSqid, l.LocationSqid })
-            .SingleOrDefaultAsync();
-
-        if (counter == null)
+        var data = await LoadCurrentCounterAsync(context, entranceCounterSqid);
+        if (data == null)
             return false;
-        if (!counter.RequiresAuthentication)
+        return await CanUseCounterAsync(context, data);
+    }
+
+    internal async Task<bool> CanUseCounterAsync(IRepositorySession context, CurrentCounter data)
+    {
+        if (!data.Counter.RequiresAuthentication)
             return true;
         var actor = await GetCurrentUserAsync(context);
         if (actor == null) return false;
         var roles = await AuthorizationGrantStore.GetRolesAsync(context, sqids, actor.UserInformationId);
         return !string.IsNullOrEmpty(ResourceAuthorization.LocationRole(
-            roles, counter.OrganizationSqid, counter.LocationSqid, actor.IsSuperAdmin));
+            roles, data.Organization.OrganizationSqid, data.Location.LocationSqid, actor.IsSuperAdmin));
+    }
+
+    internal sealed record CurrentCounter(EntranceCounter Counter, Entrance Entrance,
+        Location Location, Organization Organization);
+
+    internal static async Task<CurrentCounter?> LoadCurrentCounterAsync(
+        IRepositorySession context, string entranceCounterSqid)
+    {
+        var counters = await context.EntranceCounters.ListAsync(x => x.EntranceCounterSqid == entranceCounterSqid);
+        if (counters.Count == 0)
+            return null;
+        var entranceIds = counters.Select(x => x.EntranceId).Distinct().ToArray();
+        var locationIds = counters.Select(x => x.LocationId).Distinct().ToArray();
+        var organizationIds = counters.Select(x => x.OrganizationId).Distinct().ToArray();
+        var entrances = await context.Entrances.ListAsync(x => entranceIds.Contains(x.EntranceId) &&
+            x.EntranceCounterInstanceSqid == entranceCounterSqid);
+        var locations = await context.Locations.ListAsync(x => locationIds.Contains(x.LocationId));
+        var organizations = await context.Organizations.ListAsync(x => organizationIds.Contains(x.OrganizationId));
+        return (from c in counters
+            join e in entrances on c.EntranceId equals e.EntranceId
+            join l in locations on c.LocationId equals l.LocationId
+            join o in organizations on c.OrganizationId equals o.OrganizationId
+            where e.LocationId == l.LocationId && e.OrganizationId == o.OrganizationId &&
+                l.OrganizationId == o.OrganizationId &&
+                c.CurrentStatus == 0 && e.CurrentStatus == 0 && l.CurrentStatus == 0 && o.CurrentStatus == 0
+            select new CurrentCounter(c, e, l, o)).SingleOrDefault();
     }
 }

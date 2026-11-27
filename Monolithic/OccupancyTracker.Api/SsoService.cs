@@ -5,14 +5,14 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using Microsoft.IdentityModel.Tokens;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 
 public sealed class SsoService(
     SsoOptions options, IOccAuthorizationService authorization,
-    IDbContextFactory<OccupancyContext> contexts, IDataProtectionProvider protection)
+    IRepositorySessionFactory contexts, IDataProtectionProvider protection)
 {
     private const string RolesClaim = "https://occupancy-tracker.secure-scalable.solutions/roles";
     private readonly IDataProtector protector = protection.CreateProtector("OccupancyTracker.SsoExchange.v1");
@@ -50,8 +50,8 @@ public sealed class SsoService(
             signingCredentials: new SigningCredentials(new SymmetricSecurityKey(options.SigningKey), SecurityAlgorithms.HmacSha256)));
         var code = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
         var payload = JsonSerializer.Serialize(new SsoExchangeResponse(token, expiration, user.HasCompletedRegistration));
-        await using var db = await contexts.CreateDbContextAsync();
-        await db.SsoExchangeCodes.Where(x => x.ExpiresUtc <= DateTime.UtcNow).ExecuteDeleteAsync();
+        await using var db = await contexts.CreateAsync();
+        await db.SsoExchangeCodes.DeleteAsync(x => x.ExpiresUtc <= DateTime.UtcNow);
         db.SsoExchangeCodes.Add(new SsoExchangeCode
         {
             CodeHash = SsoOptions.Hash(code), Challenge = challenge,
@@ -66,14 +66,14 @@ public sealed class SsoService(
         if (!ValidSecret(code) || !ValidSecret(verifier)) return null;
         var codeHash = SsoOptions.Hash(code);
         var challenge = SsoOptions.Hash(verifier);
-        await using var db = await contexts.CreateDbContextAsync();
-        var entry = await db.SsoExchangeCodes.AsNoTracking().SingleOrDefaultAsync(x => x.CodeHash == codeHash);
+        await using var db = await contexts.CreateAsync();
+        var entry = await db.SsoExchangeCodes.SingleOrDefaultAsync(x => x.CodeHash == codeHash);
         if (entry == null || entry.ExpiresUtc <= DateTime.UtcNow ||
             !CryptographicOperations.FixedTimeEquals(
                 System.Text.Encoding.ASCII.GetBytes(entry.Challenge), System.Text.Encoding.ASCII.GetBytes(challenge)))
             return null;
         var now = DateTime.UtcNow;
-        if (await db.SsoExchangeCodes.Where(x => x.CodeHash == codeHash && x.ExpiresUtc > now).ExecuteDeleteAsync() != 1)
+        if (await db.SsoExchangeCodes.DeleteAsync(x => x.CodeHash == codeHash && x.ExpiresUtc > now) != 1)
             return null;
         return JsonSerializer.Deserialize<SsoExchangeResponse>(protector.Unprotect(entry.ProtectedToken))
             ?? throw new InvalidDataException("The SSO exchange payload is invalid.");

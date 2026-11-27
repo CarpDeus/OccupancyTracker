@@ -4,32 +4,22 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.DTO;
 using OccupancyTracker.Models;
 
 namespace OccupancyTracker.Service;
 
 public sealed class OrganizationUserOperations(
-    IDbContextFactory<OccupancyContext> contexts,
+    IRepositorySessionFactory contexts,
     RequestAuthorizationService authorization,
     ISqidsEncoderFactory sqids,
     IConfiguration configuration)
 {
-    private sealed record Scope(OccupancyContext Db, UserInformation Actor, Organization Organization);
+    private sealed record Scope(IRepositorySession Db, UserInformation Actor, Organization Organization);
 
     private async Task<FacilityResult<T>> ExecuteAdminAsync<T>(string orgSqid, Func<Scope, Task<FacilityResult<T>>> operation)
     {
-        static bool IsDeadlock(Exception exception)
-        {
-            for (Exception? current = exception; current != null; current = current.InnerException)
-            {
-                if (current is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
-                    return true;
-            }
-            return false;
-        }
-
         const int maxAttempts = 3;
         for (var attempt = 1; ; attempt++)
         {
@@ -37,7 +27,7 @@ public sealed class OrganizationUserOperations(
             {
                 return await ExecuteAdminOnceAsync(orgSqid, operation);
             }
-            catch (Exception ex) when (attempt < maxAttempts && IsDeadlock(ex))
+            catch (Exception ex) when (attempt < maxAttempts && contexts.IsConcurrencyConflict(ex))
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
             }
@@ -46,8 +36,8 @@ public sealed class OrganizationUserOperations(
 
     private async Task<FacilityResult<T>> ExecuteAdminOnceAsync<T>(string orgSqid, Func<Scope, Task<FacilityResult<T>>> operation)
     {
-        await using var db = await contexts.CreateDbContextAsync();
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var db = await contexts.CreateAsync();
+        await using var transaction = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
         if (actor == null) return new(OrganizationAccess.Forbidden);
         var org = await db.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == orgSqid);
@@ -64,8 +54,8 @@ public sealed class OrganizationUserOperations(
 
     public async Task<FacilityResult<bool>> CanManageAsync(string orgSqid)
     {
-        await using var db = await contexts.CreateDbContextAsync();
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var db = await contexts.CreateAsync();
+        await using var transaction = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
         if (actor == null) return new(OrganizationAccess.Forbidden);
         var org = await db.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == orgSqid);
@@ -83,15 +73,15 @@ public sealed class OrganizationUserOperations(
     public Task<FacilityResult<List<OrganizationUserSummary>>> ListUsersAsync(string orgSqid) =>
         ExecuteAdminAsync<List<OrganizationUserSummary>>(orgSqid, async scope =>
         {
-            var users = await scope.Db.OrganizationUsers.AsNoTracking()
-                .Where(x => x.OrganizationId == scope.Organization.OrganizationId)
-                .Select(x => new OrganizationUserSummary
+            var memberships = await scope.Db.OrganizationUsers.ListAsync(
+                x => x.OrganizationId == scope.Organization.OrganizationId, default, x => x.UserInformation);
+            var users = memberships.Select(x => new OrganizationUserSummary
                 {
                     UserInformationSqid = x.UserInformation.UserInformationSqid!,
                     FirstName = x.UserInformation.FirstName, LastName = x.UserInformation.LastName,
                     EmailAddress = x.UserInformation.EmailAddress, UserStatusId = x.UserStatusId,
                     StartDate = x.StartDate, EndDate = x.EndDate
-                }).ToListAsync();
+                }).ToList();
             return new(OrganizationAccess.Success, users);
         });
 
@@ -121,17 +111,15 @@ public sealed class OrganizationUserOperations(
 
     private static async Task<FacilityResult<MembershipData>> LoadMembershipAsync(Scope scope, string userSqid)
     {
-        var matches = await scope.Db.OrganizationUsers.Include(x => x.UserInformation)
-            .Where(x => x.OrganizationId == scope.Organization.OrganizationId &&
-                x.UserInformation.UserInformationSqid == userSqid).ToListAsync();
+        var matches = await scope.Db.OrganizationUsers.ListAsync(
+            x => x.OrganizationId == scope.Organization.OrganizationId &&
+                x.UserInformation.UserInformationSqid == userSqid, default, x => x.UserInformation);
         if (matches.Count == 0 || !string.Equals(matches[0].UserInformation.UserInformationSqid, userSqid, StringComparison.Ordinal))
             return new(OrganizationAccess.NotFound);
         if (matches.Count != 1) return new(OrganizationAccess.Conflict);
         var membership = matches[0];
-        var roles = await scope.Db.OrganizationUserRoles
-            .Where(x => x.OrganizationUserId == membership.OrganizationUsersId).ToListAsync();
-        var locations = await scope.Db.Locations.AsNoTracking()
-            .Where(x => x.OrganizationId == scope.Organization.OrganizationId).ToListAsync();
+        var roles = await scope.Db.OrganizationUserRoles.ListAsync(x => x.OrganizationUserId == membership.OrganizationUsersId);
+        var locations = await scope.Db.Locations.ListAsync(x => x.OrganizationId == scope.Organization.OrganizationId);
         var locationIds = locations.Select(x => x.LocationId).ToHashSet();
         if (locations.Any(x => string.IsNullOrEmpty(x.LocationSqid)) ||
             locations.Select(x => x.LocationSqid).Distinct(StringComparer.Ordinal).Count() != locations.Count ||
@@ -224,14 +212,18 @@ public sealed class OrganizationUserOperations(
         var end = old.EndDate?.DayNumber ?? DateOnly.MaxValue.DayNumber;
         if (start > end) return true;
 
-        var others = await (from membership in scope.Db.OrganizationUsers
-            join role in scope.Db.OrganizationUserRoles on membership.OrganizationUsersId equals role.OrganizationUserId
-            where membership.OrganizationId == scope.Organization.OrganizationId &&
-                membership.OrganizationUsersId != old.OrganizationUsersId &&
-                membership.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
+        var memberships = await scope.Db.OrganizationUsers.ListAsync(
+            x => x.OrganizationId == scope.Organization.OrganizationId &&
+                x.OrganizationUsersId != old.OrganizationUsersId, default, x => x.UserInformation);
+        var membershipIds = memberships.Select(x => x.OrganizationUsersId).ToArray();
+        var roles = membershipIds.Length == 0 ? [] :
+            await scope.Db.OrganizationUserRoles.ListAsync(x => membershipIds.Contains(x.OrganizationUserId));
+        var others = from membership in memberships
+            join role in roles on membership.OrganizationUsersId equals role.OrganizationUserId
+            where membership.UserStatusId == AuthorizationRecords.UserStatus.Approved.Id &&
                 membership.UserInformation.CurrentStatusId == Statuses.DataStatus.Active.Id &&
                 role.OrganizationWide && role.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name
-            select new { membership.StartDate, membership.EndDate, role.RoleName }).ToListAsync();
+            select new { membership.StartDate, membership.EndDate, role.RoleName };
         var intervals = others.Where(x => x.RoleName == AuthorizationRecords.Roles.OrganizationAdmin.Name)
             .Select(x => (Start: x.StartDate?.DayNumber ?? 0,
             End: x.EndDate?.DayNumber ?? DateOnly.MaxValue.DayNumber)).ToList();
@@ -253,11 +245,12 @@ public sealed class OrganizationUserOperations(
     public Task<FacilityResult<List<OrganizationInvitationSummary>>> ListInvitationsAsync(string orgSqid) =>
         ExecuteAdminAsync<List<OrganizationInvitationSummary>>(orgSqid, async scope =>
         {
-            var invitations = await scope.Db.OrganizationInvitationCodes.AsNoTracking()
-                .Where(x => x.OrganizationId == scope.Organization.OrganizationId &&
-                    x.CurrentStatus == Statuses.DataStatus.Active.Id && !x.InvitationRedeemed.HasValue)
+            var rows = await scope.Db.OrganizationInvitationCodes.ListAsync(
+                x => x.OrganizationId == scope.Organization.OrganizationId &&
+                    x.CurrentStatus == Statuses.DataStatus.Active.Id && !x.InvitationRedeemed.HasValue);
+            var invitations = rows
                 .Select(x => new OrganizationInvitationSummary { EmailAddress = x.EmailAddress, InvitationCode = x.InvitationCode! })
-                .ToListAsync();
+                .ToList();
             return new(OrganizationAccess.Success, invitations);
         });
 
@@ -305,8 +298,8 @@ public sealed class OrganizationUserOperations(
     public async Task<FacilityResult<bool>> RedeemAsync(RedeemOrganizationInvitation input)
     {
         if (string.IsNullOrWhiteSpace(input.InvitationCode)) return new(OrganizationAccess.Invalid);
-        await using var db = await contexts.CreateDbContextAsync();
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var db = await contexts.CreateAsync();
+        await using var transaction = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
         if (actor == null || !actor.HasCompletedRegistration) return new(OrganizationAccess.Forbidden);
         var invitation = await db.OrganizationInvitationCodes.SingleOrDefaultAsync(x => x.InvitationCode == input.InvitationCode);
@@ -319,8 +312,8 @@ public sealed class OrganizationUserOperations(
         if (invitation.CurrentStatus != Statuses.DataStatus.Active.Id || invitation.InvitationRedeemed.HasValue ||
             organization.CurrentStatus != Statuses.DataStatus.Active.Id)
             return new(OrganizationAccess.Conflict);
-        var memberships = await db.OrganizationUsers.Where(x => x.OrganizationId == organization.OrganizationId &&
-            x.UserInformationId == actor.UserInformationId).ToListAsync();
+        var memberships = await db.OrganizationUsers.ListAsync(x => x.OrganizationId == organization.OrganizationId &&
+            x.UserInformationId == actor.UserInformationId);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         if (memberships.Any(x => x.UserStatusId != AuthorizationRecords.UserStatus.Approved.Id ||
             (x.StartDate.HasValue && x.StartDate > today) || (x.EndDate.HasValue && x.EndDate < today)))

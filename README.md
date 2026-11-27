@@ -14,6 +14,18 @@ and public-content endpoints), and `OccupancyTracker` (the MudBlazor UI).
 The UI references the shared models and communicates with the API; it does not
 reference the backend or connect directly to the database or cache.
 
+Business and authorization rules live in backend services. API endpoints call
+services, which use `IRepositorySessionFactory` rather than EF Core contexts. A session
+provides a separate typed `ICrudRepository<T>` for each entity and a shared
+unit of work for atomic changes across repositories. Repositories execute CRUD,
+filtering, ordering, and relationship loading only; they do not decide access,
+status transitions, roles, invitations, or occupancy calculations.
+EF Core tracking, bulk deletion, transactions, and migrations are implemented
+under `OccupancyTracker.Backend/Repository`; cache writes, deletion, and flushing use a repository
+interface. Detached reads are used where projecting request claims must not
+change stored identity fields. Existing migration history and schema are unchanged.
+The historical `ProfileService.cs` remains excluded from compilation, as before.
+
 ### Running the tracker API and UI
 
 Configure `ConnectionStrings:Occupancy`, `Sqids`, and `enyimMemcached` on the

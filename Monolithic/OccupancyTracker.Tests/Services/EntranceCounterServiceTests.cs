@@ -1,4 +1,4 @@
-using Enyim.Caching;
+using OccupancyTracker.IRepository;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +31,7 @@ public sealed class EntranceCounterServiceTests
         var sut = new EntranceCounterService(
             factory,
             new TestSqids(),
-            Mock.Of<IMemcachedClient>(),
+            Mock.Of<ICacheRepository>(),
             Mock.Of<IOccAuthorizationService>());
 
         // Act
@@ -54,7 +54,7 @@ public sealed class EntranceCounterServiceTests
         var sut = new EntranceCounterService(
             factory,
             new TestSqids(),
-            Mock.Of<IMemcachedClient>(),
+            Mock.Of<ICacheRepository>(),
             Mock.Of<IOccAuthorizationService>());
 
         // Act
@@ -72,7 +72,7 @@ public sealed class EntranceCounterServiceTests
         var sut = new EntranceCounterService(
             factory,
             new TestSqids(),
-            Mock.Of<IMemcachedClient>(),
+            Mock.Of<ICacheRepository>(),
             Mock.Of<IOccAuthorizationService>());
 
         // Act
@@ -82,7 +82,7 @@ public sealed class EntranceCounterServiceTests
         result.Should().NotBeNullOrEmpty();
     }
 
-    private sealed class TestContextFactory : IDbContextFactory<OccupancyContext>
+    private sealed class TestContextFactory : IDbContextFactory<OccupancyContext>, IRepositorySessionFactory
     {
         private readonly SqliteConnection connection;
         private readonly DbContextOptions<OccupancyContext> options;
@@ -96,6 +96,12 @@ public sealed class EntranceCounterServiceTests
         }
 
         public OccupancyContext CreateDbContext() => new(options);
+        public IRepositorySession Create() =>
+            new OccupancyTracker.Repository.RepositorySessionFactory(this).Create();
+        public Task<IRepositorySession> CreateAsync(CancellationToken cancellationToken = default) =>
+            new OccupancyTracker.Repository.RepositorySessionFactory(this).CreateAsync(cancellationToken);
+        public bool IsConcurrencyConflict(Exception exception) =>
+            new OccupancyTracker.Repository.RepositorySessionFactory(this).IsConcurrencyConflict(exception);
     }
 
     private sealed class TestSqids : ISqidsEncoderFactory

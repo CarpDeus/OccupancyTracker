@@ -1,5 +1,5 @@
 using System.Data;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.DTO;
 using OccupancyTracker.Models;
 
@@ -9,16 +9,16 @@ public enum OrganizationAccess { Success, NotFound, Forbidden, Invalid, Conflict
 public record OrganizationResult(OrganizationAccess Access, Organization? Organization = null);
 
 public sealed class OrganizationOperations(
-    IDbContextFactory<OccupancyContext> contexts,
+    IRepositorySessionFactory contexts,
     RequestAuthorizationService authorization,
     ISqidsEncoderFactory sqids)
 {
     public async Task<OrganizationResult> ReadAsync(string sqid)
     {
-        await using var context = await contexts.CreateDbContextAsync();
+        await using var context = await contexts.CreateAsync();
         var actor = await authorization.GetCurrentUserAsync(context);
         if (actor == null) return new(OrganizationAccess.Forbidden);
-        var organization = await context.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationSqid == sqid);
+        var organization = await context.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == sqid);
         if (organization == null) return new(OrganizationAccess.NotFound);
         var role = await GetRoleAsync(context, actor, sqid);
         return CanRead(organization, role) ? new(OrganizationAccess.Success, organization) : new(OrganizationAccess.Forbidden);
@@ -27,8 +27,8 @@ public sealed class OrganizationOperations(
     public async Task<OrganizationResult> CreateAsync(OrganizationEdit input)
     {
         if (!IsValid(input)) return new(OrganizationAccess.Invalid);
-        await using var context = await contexts.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var context = await contexts.CreateAsync();
+        await using var transaction = await context.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(context);
         if (actor == null || !actor.HasCompletedRegistration ||
             (!actor.IsSuperAdmin && (actor.BelongsToOrganization ||
@@ -63,8 +63,8 @@ public sealed class OrganizationOperations(
     public async Task<OrganizationResult> UpdateAsync(string sqid, OrganizationEdit input)
     {
         if (!IsValid(input)) return new(OrganizationAccess.Invalid);
-        await using var context = await contexts.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var context = await contexts.CreateAsync();
+        await using var transaction = await context.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(context);
         if (actor == null) return new(OrganizationAccess.Forbidden);
         var organization = await context.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == sqid);
@@ -83,8 +83,8 @@ public sealed class OrganizationOperations(
     {
         if (change.FromStatus is < 0 or > 2 || !Statuses.DataStatus.ValidChangeStates(change.FromStatus).Contains(change.ToStatus))
             return new(OrganizationAccess.Invalid);
-        await using var context = await contexts.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var context = await contexts.CreateAsync();
+        await using var transaction = await context.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(context);
         if (actor == null) return new(OrganizationAccess.Forbidden);
         var organization = await context.Organizations.SingleOrDefaultAsync(x => x.OrganizationSqid == sqid);
@@ -100,7 +100,7 @@ public sealed class OrganizationOperations(
         return new(OrganizationAccess.Success, organization);
     }
 
-    private async Task<string> GetRoleAsync(OccupancyContext context, UserInformation actor, string sqid)
+    private async Task<string> GetRoleAsync(IRepositorySession context, UserInformation actor, string sqid)
     {
         var roles = await AuthorizationGrantStore.GetRolesAsync(context, sqids, actor.UserInformationId);
         return ResourceAuthorization.OrganizationRole(roles, sqid, actor.IsSuperAdmin);

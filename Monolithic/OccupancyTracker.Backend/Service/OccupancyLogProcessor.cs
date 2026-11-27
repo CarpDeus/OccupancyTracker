@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using OccupancyTracker.Models;
 using System.Timers;
 
@@ -9,14 +9,14 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class OccupancyLogProcessor : BackgroundService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _contextFactory;
         private PeriodicTimer _timer = new PeriodicTimer(new TimeSpan(0, 0, 30));
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OccupancyLogProcessor"/> class.
         /// </summary>
-        /// <param name="contextFactory">The factory to create database context instances.</param>
-        public OccupancyLogProcessor(IDbContextFactory<OccupancyContext> contextFactory)
+        /// <param name="contextFactory">The factory to create repository sessions.</param>
+        public OccupancyLogProcessor(IRepositorySessionFactory contextFactory)
         {
             _contextFactory = contextFactory;
         }
@@ -30,20 +30,20 @@ namespace OccupancyTracker.Service
             while (await _timer.WaitForNextTickAsync(stoppingToken)
                 && !stoppingToken.IsCancellationRequested)
             {
-                using var context = _contextFactory.CreateDbContext();
+                using var context = _contextFactory.Create();
                 DateTime start = DateTime.MinValue;
                 DateTime end = DateTime.Now.AddMinutes(-1);
-                var lastSummary = await context.OccupancyLogSummaries
-                    .OrderByDescending(s => s.OccupancyLogSummaryId)
-                    .FirstOrDefaultAsync();
+                var lastSummary = await context.OccupancyLogSummaries.FirstOrDefaultAsync(
+                    s => true, s => s.OccupancyLogSummaryId, descending: true, cancellationToken: stoppingToken);
 
                 if (lastSummary != null)
                 {
                     start = new DateTime(lastSummary.LoggedYear, lastSummary.LoggedMonth, lastSummary.LoggedDay, lastSummary.LoggedHour, lastSummary.LoggedMinute, 0);
                 }
 
-                var logs = await context.OccupancyLogs
-                    .Where(lg => lg.CreatedDate > start && lg.CreatedDate < end)
+                var entries = await context.OccupancyLogs.ListAsync(lg => lg.CreatedDate > start && lg.CreatedDate < end,
+                    stoppingToken);
+                var logs = entries
                     .GroupBy(l => new { l.OrganizationId, l.LocationId, l.EntranceId, l.CreatedDate.Year, l.CreatedDate.Month, l.CreatedDate.Day, l.CreatedDate.Hour, l.CreatedDate.Minute })
                     .Select(l => new OccupancyLogSummary
                     {
@@ -59,13 +59,14 @@ namespace OccupancyTracker.Service
                         ExitedLocation = l.Sum(lg => lg.LoggedChange < 0 ? -lg.LoggedChange : 0),
                         MinOccupancy = l.Min(l => l.CurrentOccupancy),
                         MaxOccupancy = l.Max(l => l.CurrentOccupancy)
-                    }).ToListAsync();
+                    }).ToList();
 
                 // Process the logs
                 foreach (var log in logs)
                 {
-                    var sumLog = await context.OccupancyLogSummaries
-                        .FirstOrDefaultAsync(s => s.OrganizationId == log.OrganizationId && s.LocationId == log.LocationId && s.EntranceId == log.EntranceId && s.LoggedYear == log.LoggedYear && s.LoggedMonth == log.LoggedMonth && s.LoggedDay == log.LoggedDay && s.LoggedHour == log.LoggedHour && s.LoggedMinute == log.LoggedMinute);
+                    var sumLog = await context.OccupancyLogSummaries.FirstOrDefaultAsync(
+                        s => s.OrganizationId == log.OrganizationId && s.LocationId == log.LocationId && s.EntranceId == log.EntranceId && s.LoggedYear == log.LoggedYear && s.LoggedMonth == log.LoggedMonth && s.LoggedDay == log.LoggedDay && s.LoggedHour == log.LoggedHour && s.LoggedMinute == log.LoggedMinute,
+                        stoppingToken);
 
                     if (sumLog != null)
                     {

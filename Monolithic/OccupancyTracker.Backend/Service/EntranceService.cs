@@ -1,5 +1,4 @@
-﻿using Enyim.Caching;
-using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 using SendGrid.Helpers.Mail;
@@ -13,24 +12,24 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class EntranceService : IEntranceService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _repositoryFactory;
         private readonly ISqidsEncoderFactory _sqids;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly ICacheRepository _cacheRepository;
         private readonly IOccAuthorizationService _authorizationService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="EntranceService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="repositoryFactory">The repository session factory.</param>
         /// <param name="sqidsEncoderFactory">The SQIDs encoder factory.</param>
-        /// <param name="memcachedClient">The Memcached client.</param>
+        /// <param name="cacheRepository">The cache repository.</param>
         /// <param name="authorizationService">The authorization service.</param>
-        public EntranceService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory sqidsEncoderFactory, IMemcachedClient memcachedClient,
+        public EntranceService(IRepositorySessionFactory repositoryFactory, ISqidsEncoderFactory sqidsEncoderFactory, ICacheRepository cacheRepository,
             IOccAuthorizationService authorizationService)
         {
             _authorizationService = authorizationService;
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
             _sqids = sqidsEncoderFactory;
         }
 
@@ -56,7 +55,7 @@ namespace OccupancyTracker.Service
             {
                 await _authorizationService.LogAccessExceptionAsync(userInformationSqid, organizationSqid, locationSqid, entranceSqid, "", $"User does not have access to the location containing entrance {entranceSqid}", $"You do not have access to the location containing entrance {entranceSqid}");
             }
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 if (entity != null)
                 {
@@ -92,12 +91,12 @@ namespace OccupancyTracker.Service
             string cacheKey = $"EntList:{locationSqid}:{userInformationSqid}:Ents";
             List<Entrance> entrances = new List<Entrance>();
             if (string.IsNullOrEmpty(locationSqid)) return entrances;
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, locationSqid);
-                entrances = _context.Entrances.Where(x => x.LocationId == pos.LocationId).ToList();
+                entrances = await _context.Entrances.ListAsync(x => x.LocationId == pos.LocationId);
             }
-            await _memcachedClient.SetAsync(cacheKey, entrances, 300);
+            await _cacheRepository.WriteAsync(cacheKey, entrances, TimeSpan.FromSeconds(300));
             return entrances;
         }
 
@@ -115,7 +114,7 @@ namespace OccupancyTracker.Service
             string cacheKey = $"EntList:{locationSqid}:{userInformationSqid}:Ents";
             List<Entrance> entrances = new List<Entrance>();
             if (string.IsNullOrEmpty(locationSqid)) return entrances;
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 if (!await _authorizationService.HasAccessToLocationAsync(userInformationSqid, locationSqid))
                 {
@@ -123,11 +122,10 @@ namespace OccupancyTracker.Service
                 }
                 ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, locationSqid);
                 bool isLocAdmin = await _authorizationService.IsLocAdminAsync(userInformationSqid, pos.OrganizationSqid, pos.LocationSqid);
-                entrances = _context.Entrances.Where(x => x.LocationId == pos.LocationId)
-                    .Where(x => x.CurrentStatus != Statuses.DataStatus.PermanentlyDeleted.Id)
-                    .ToList();
+                entrances = await _context.Entrances.ListAsync(x => x.LocationId == pos.LocationId
+                    && x.CurrentStatus != Statuses.DataStatus.PermanentlyDeleted.Id);
             }
-            await _memcachedClient.SetAsync(cacheKey, entrances, 30);
+            await _cacheRepository.WriteAsync(cacheKey, entrances, TimeSpan.FromSeconds(30));
             return entrances;
         }
 
@@ -164,12 +162,12 @@ namespace OccupancyTracker.Service
 
             string cacheKey = $"Entrance:{entranceSqid}";
             Entrance entrance = new();
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
-                entrance = _context.Entrances.FirstOrDefault(e => e.EntranceSqid == entranceSqid);
+                entrance = await _context.Entrances.FirstOrDefaultAsync(e => e.EntranceSqid == entranceSqid);
                 if (entrance != null)
                 {
-                    _memcachedClient.Set(cacheKey, entrance, 30);
+                    await _cacheRepository.WriteAsync(cacheKey, entrance, TimeSpan.FromSeconds(30));
                 }
                 return entrance;
             }
@@ -258,7 +256,7 @@ namespace OccupancyTracker.Service
         {
             string userInformationSqid = userInformation.UserInformationSqid;
 
-            using (var _context = _contextFactory.CreateDbContext())
+            using (var _context = _repositoryFactory.Create())
             {
                 if (entrance.EntranceId == 0)
                 {
@@ -268,7 +266,6 @@ namespace OccupancyTracker.Service
                         await _context.SaveChangesAsync();
                         entrance.EntranceSqid = _sqids.EncodeEntranceId(entrance.OrganizationId, entrance.LocationId, entrance.EntranceId);
                         _context.Entrances.Update(entrance);
-                        _context.Entry(entrance).State = EntityState.Modified;
                         await _context.SaveChangesAsync();
                     }
                     catch (Exception e)
@@ -283,7 +280,6 @@ namespace OccupancyTracker.Service
                         entrance.EntranceSqid = _sqids.EncodeEntranceId(entrance.OrganizationId, entrance.LocationId, entrance.EntranceId);
                     }
                     _context.Entrances.Update(entrance);
-                    _context.Entry(entrance).State = EntityState.Modified;
                     await _context.SaveChangesAsync();
                 }
                 await _context.SaveChangesAsync();

@@ -1,7 +1,5 @@
-﻿using Enyim.Caching;
-using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
+﻿using Microsoft.AspNetCore.SignalR.Client;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
@@ -14,24 +12,24 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class EntranceCounterService : IEntranceCounterService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _repositoryFactory;
         private readonly ISqidsEncoderFactory _sqids;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly ICacheRepository _cacheRepository;
         private readonly IOccAuthorizationService _authorizationService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="EntranceCounterService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="repositoryFactory">The repository session factory.</param>
         /// <param name="sqidsEncoderFactory">The SQIDs encoder factory.</param>
-        /// <param name="memcachedClient">The Memcached client.</param>
+        /// <param name="cacheRepository">The cache repository.</param>
         /// <param name="authorizationService">The authorization service.</param>
-        public EntranceCounterService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory sqidsEncoderFactory, IMemcachedClient memcachedClient,
+        public EntranceCounterService(IRepositorySessionFactory repositoryFactory, ISqidsEncoderFactory sqidsEncoderFactory, ICacheRepository cacheRepository,
             IOccAuthorizationService authorizationService)
         {
             _authorizationService = authorizationService;
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
             _sqids = sqidsEncoderFactory;
         }
 
@@ -44,10 +42,9 @@ namespace OccupancyTracker.Service
         public async Task<EntranceCounter> GetAsync(string sqid, bool forceCacheRefresh = false)
         {
             ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, null, null, sqid);
-            using var _context = _contextFactory.CreateDbContext();
-            return await _context.EntranceCounters
-                .Where(e => e.EntranceCounterSqid == sqid && e.CurrentStatus == Statuses.DataStatus.Active.Id)
-                .FirstOrDefaultAsync();
+            using var _context = _repositoryFactory.Create();
+            return await _context.EntranceCounters.FirstOrDefaultAsync(
+                e => e.EntranceCounterSqid == sqid && e.CurrentStatus == Statuses.DataStatus.Active.Id);
         }
 
         /// <summary>
@@ -70,7 +67,7 @@ namespace OccupancyTracker.Service
         public async Task<int> UpdateCountAsync(string sqid, int count, bool forceCacheRefresh = false)
         {
             ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, null, null, sqid);
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _repositoryFactory.Create();
             var location = await _context.Locations.FirstOrDefaultAsync(l => l.LocationId == (long)pos.LocationId);
             if (location == null) return 0;
 
@@ -100,7 +97,7 @@ namespace OccupancyTracker.Service
         public async Task<int> GetCountAsync(string sqid, bool forceCacheRefresh = false)
         {
             ParsedOrganizationSqids pos = _sqids.DecodeSqids(null, null, sqid);
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _repositoryFactory.Create();
             var location = await _context.Locations.FirstOrDefaultAsync(l => l.LocationId == (long)pos.LocationId);
             return location?.CurrentOccupancy ?? 0;
         }
@@ -132,12 +129,12 @@ namespace OccupancyTracker.Service
                 CreatedBy = userInformationSqid,
                 CreatedDate = entrance.CreatedDate
             };
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _repositoryFactory.Create();
             _context.EntranceCounters.Add(eci);
             await _context.SaveChangesAsync();
 
             eci.EntranceCounterSqid = _sqids.EncodeEntranceCounterId(eci.OrganizationId, eci.LocationId, eci.EntranceId, eci.EntranceCounterId);
-            _context.Update(eci);
+            _context.EntranceCounters.Update(eci);
             entrance.EntranceCounterInstanceSqid = eci.EntranceCounterSqid;
             _context.Entrances.Update(entrance);
             await _context.SaveChangesAsync();
@@ -159,7 +156,7 @@ namespace OccupancyTracker.Service
             var retVal = new EntranceCounterDto(entranceCounter);
             if (retVal.CurrentStatus != Statuses.DataStatus.Active.Id) return null;
 
-            using var _context = _contextFactory.CreateDbContext();
+            using var _context = _repositoryFactory.Create();
             var organization = await _context.Organizations.FirstOrDefaultAsync(o => o.OrganizationId == retVal.OrganizationId);
             if (organization?.CurrentStatus != Statuses.DataStatus.Active.Id) return null;
 

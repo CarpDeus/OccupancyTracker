@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Internal;
+using OccupancyTracker.IRepository;
 
 namespace OccupancyTracker.Models
 {
@@ -57,22 +58,23 @@ namespace OccupancyTracker.Models
     }
     public class OccupancyDbInitializer
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _contextFactory;
+        private readonly IDatabaseMigrator _migrator;
 
 
-        public OccupancyDbInitializer(IDbContextFactory<OccupancyContext> contextFactory)
+        public OccupancyDbInitializer(IRepositorySessionFactory contextFactory, IDatabaseMigrator migrator)
         {
             _contextFactory = contextFactory;
+            _migrator = migrator;
             
         }
 
-        public void Run()
+        public async Task RunAsync(CancellationToken cancellationToken = default)
         {
-            using (var context = _contextFactory.CreateDbContext())
+            await _migrator.MigrateAsync(cancellationToken);
+            using (var context = _contextFactory.Create())
             {
-                context.Database.Migrate();
-
-                if (!context.EmailProcessorPointers.Any())
+                if (!await context.EmailProcessorPointers.AnyAsync(cancellationToken: cancellationToken))
                 {
                     context.EmailProcessorPointers.Add(new EmailProcessorPointers()
                     {
@@ -80,10 +82,10 @@ namespace OccupancyTracker.Models
                         EmailProcessorPointerDescription = "Default",
                         EmailProcessorPointerName = "Default"
                     });
-                    context.SaveChanges();
+                    await context.SaveChangesAsync(cancellationToken);
                 }
 
-                if (!context.MarkdownText.Any(x => x.PageName == "privacy" && x.TextIdentifier == "body"))
+                if (!await context.MarkdownText.AnyAsync(x => x.PageName == "privacy" && x.TextIdentifier == "body", cancellationToken))
                 {
                     context.MarkdownText.Add(new MarkdownText()
                     {
@@ -92,10 +94,10 @@ namespace OccupancyTracker.Models
                         MarkdownContent = privacyPolicy,
                         CurrentStatus = Statuses.DataStatus.Active.Id
                     });
-                    context.SaveChanges();
+                    await context.SaveChangesAsync(cancellationToken);
                 }
 
-                if (!context.MarkdownText.Any(x => x.PageName == "terms" && x.TextIdentifier == "body"))
+                if (!await context.MarkdownText.AnyAsync(x => x.PageName == "terms" && x.TextIdentifier == "body", cancellationToken))
                 {
                     context.MarkdownText.Add(new MarkdownText()
                     {
@@ -104,7 +106,7 @@ namespace OccupancyTracker.Models
                         MarkdownContent = termsOfService,
                         CurrentStatus = Statuses.DataStatus.Active.Id
                     });
-                    context.SaveChanges();
+                    await context.SaveChangesAsync(cancellationToken);
                 }
 
                 //// Look for any Locations.

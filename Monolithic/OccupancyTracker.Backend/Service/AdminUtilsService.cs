@@ -1,4 +1,4 @@
-﻿using Enyim.Caching;
+﻿using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 
 namespace OccupancyTracker.Service
@@ -8,20 +8,20 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class AdminUtilsService : IAdminUtilsService
     {
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly ICacheRepository _cache;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AdminUtilsService"/> class.
         /// </summary>
         /// <param name="memcachedClient">The Memcached client.</param>
-        public AdminUtilsService(IMemcachedClient memcachedClient)
+        public AdminUtilsService(ICacheRepository cache)
         {
-            _memcachedClient = memcachedClient;
+            _cache = cache;
         }
 
         /// <summary>
         /// Requests a cache flush on the available servers.
         /// </summary>
-        public Task ClearCacheAsync() => _memcachedClient.FlushAllAsync();
+        public Task ClearCacheAsync() => _cache.ClearAsync();
     }
 }

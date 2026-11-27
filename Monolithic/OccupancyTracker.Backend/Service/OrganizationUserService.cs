@@ -1,5 +1,4 @@
-﻿using Enyim.Caching;
-using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using Microsoft.Extensions.Configuration;
 using OccupancyTracker.DTO;
 using OccupancyTracker.IService;
@@ -17,26 +16,26 @@ namespace OccupancyTracker.Service
     public class OrganizationUserService : IOrganizationUserService
     {
         private readonly IConfiguration _configuration;
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
-        private readonly IMemcachedClient _memcachedClient;
+        private readonly IRepositorySessionFactory _repositoryFactory;
+        private readonly ICacheRepository _cacheRepository;
         private readonly IOccAuthorizationService _authorizationService;
         private readonly ISqidsEncoderFactory _organizationSqidsEncoderFactory;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OrganizationUserService"/> class.
         /// </summary>
-        /// <param name="contextFactory">The context factory.</param>
+        /// <param name="repositoryFactory">The repository session factory.</param>
         /// <param name="organizationSqidsEncoderFactory">The organization SQIDs encoder factory.</param>
-        /// <param name="memcachedClient">The memcached client.</param>
+        /// <param name="cacheRepository">The cache repository.</param>
         /// <param name="authorizationService">The authorization service.</param>
         /// <param name="configuration">The configuration.</param>
-        public OrganizationUserService(IDbContextFactory<OccupancyContext> contextFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, IMemcachedClient memcachedClient,
+        public OrganizationUserService(IRepositorySessionFactory repositoryFactory, ISqidsEncoderFactory organizationSqidsEncoderFactory, ICacheRepository cacheRepository,
             IOccAuthorizationService authorizationService, IConfiguration configuration)
         {
             _authorizationService = authorizationService;
             _organizationSqidsEncoderFactory = organizationSqidsEncoderFactory;
-            _memcachedClient = memcachedClient;
-            _contextFactory = contextFactory;
+            _cacheRepository = cacheRepository;
+            _repositoryFactory = repositoryFactory;
             _configuration = configuration;
         }
 
@@ -61,15 +60,14 @@ namespace OccupancyTracker.Service
 
             //if (forceCacheRefresh || organizationUsers == null)
             {
-                using (var context = _contextFactory.CreateDbContext())
+                using (var context = _repositoryFactory.Create())
                 {
                     var organization = await context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                     if (organization != null)
                     {
-                        organizationUsers = await context.OrganizationUsers
-                            .Where(x => x.OrganizationId == organization.OrganizationId)
-                            .Include(e => e.UserInformation)
-                            .ToListAsync();
+                        organizationUsers = await context.OrganizationUsers.ListAsync(
+                            x => x.OrganizationId == organization.OrganizationId,
+                            default, e => e.UserInformation);
                     }
                 }
             }
@@ -93,7 +91,7 @@ namespace OccupancyTracker.Service
                 return false;
             }
 
-            using (var context = _contextFactory.CreateDbContext())
+            using (var context = _repositoryFactory.Create())
             {
                 var organization = await context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 var userInformation = await context.UserInformation.FirstOrDefaultAsync(x => x.UserInformationSqid == userInformationSqid);
@@ -154,7 +152,7 @@ namespace OccupancyTracker.Service
         /// <returns><c>true</c> if the invitation was redeemed successfully; otherwise, <c>false</c>.</returns>
         public async Task<bool> RedeemInvitationAsync(string userInformationSqid, string ipAddress, string invitationCode)
         {
-            using (var context = _contextFactory.CreateDbContext())
+            using (var context = _repositoryFactory.Create())
             {
                 var organizationInvitationCodes = await context.OrganizationInvitationCodes.FirstOrDefaultAsync(x => x.InvitationCode == invitationCode);
                 if (organizationInvitationCodes == null)
@@ -201,11 +199,9 @@ namespace OccupancyTracker.Service
                     await context.SaveChangesAsync();
                     userInformation.BelongsToOrganization = true;
                     context.UserInformation.Update(userInformation);
-                    context.Entry(userInformation).State = EntityState.Modified;
                 }
                 organizationInvitationCodes.InvitationRedeemed = DateOnly.FromDateTime(DateTime.UtcNow);
                 context.OrganizationInvitationCodes.Update(organizationInvitationCodes);
-                context.Entry(organizationInvitationCodes).State = EntityState.Modified;
                 await context.SaveChangesAsync();
                 return true;
             }
@@ -226,7 +222,7 @@ namespace OccupancyTracker.Service
                 return new List<OrganizationInvitationCodes>();
             }
 
-            using (var context = _contextFactory.CreateDbContext())
+            using (var context = _repositoryFactory.Create())
             {
                 var organization = await context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 if (organization == null)
@@ -234,9 +230,8 @@ namespace OccupancyTracker.Service
                     return new List<OrganizationInvitationCodes>();
                 }
 
-                return await context.OrganizationInvitationCodes
-                    .Where(x => x.OrganizationId == organization.OrganizationId && !x.InvitationRedeemed.HasValue)
-                    .ToListAsync();
+                return await context.OrganizationInvitationCodes.ListAsync(
+                    x => x.OrganizationId == organization.OrganizationId && !x.InvitationRedeemed.HasValue);
             }
         }
 
@@ -257,7 +252,7 @@ namespace OccupancyTracker.Service
                 return new List<OrganizationUserRolesDto>();
             }
 
-            using (var context = _contextFactory.CreateDbContext())
+            using (var context = _repositoryFactory.Create())
             {
                 var organization = await context.Organizations.FirstOrDefaultAsync(x => x.OrganizationSqid == organizationSqid);
                 if (organization == null)
@@ -265,13 +260,11 @@ namespace OccupancyTracker.Service
                     return new List<OrganizationUserRolesDto>();
                 }
 
-                var userRoles = await context.OrganizationUserRoles
-                    .Where(x => x.OrganizationUserId == organizationUser.OrganizationUsersId)
-                    .ToListAsync();
+                var userRoles = await context.OrganizationUserRoles.ListAsync(
+                    x => x.OrganizationUserId == organizationUser.OrganizationUsersId);
 
-                var locations = await context.Locations
-                    .Where(x => x.OrganizationId == organization.OrganizationId && (x.CurrentStatus != Statuses.DataStatus.PermanentlyDeleted.Id))
-                    .ToListAsync();
+                var locations = await context.Locations.ListAsync(
+                    x => x.OrganizationId == organization.OrganizationId && (x.CurrentStatus != Statuses.DataStatus.PermanentlyDeleted.Id));
 
                 var result = new List<OrganizationUserRolesDto>();
 

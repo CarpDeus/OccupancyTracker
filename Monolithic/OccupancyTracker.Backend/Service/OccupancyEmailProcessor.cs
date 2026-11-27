@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using OccupancyTracker.IRepository;
 using OccupancyTracker.Models;
 using SendGrid.Helpers.Mail;
 using System.Text.Json;
@@ -11,16 +11,16 @@ namespace OccupancyTracker.Service
     /// </summary>
     public class OccupancyEmailProcessor : BackgroundService
     {
-        private readonly IDbContextFactory<OccupancyContext> _contextFactory;
+        private readonly IRepositorySessionFactory _contextFactory;
         private readonly ISendGridFactory _sendGridFactory;
         private PeriodicTimer _timer = new PeriodicTimer(new TimeSpan(0, 0, 30));
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OccupancyEmailProcessor"/> class.
         /// </summary>
-        /// <param name="contextFactory">The factory to create database context instances.</param>
+        /// <param name="contextFactory">The factory to create repository sessions.</param>
         /// <param name="sendGridFactory">The factory to create SendGrid client instances.</param>
-        public OccupancyEmailProcessor(IDbContextFactory<OccupancyContext> contextFactory, ISendGridFactory sendGridFactory)
+        public OccupancyEmailProcessor(IRepositorySessionFactory contextFactory, ISendGridFactory sendGridFactory)
         {
             _contextFactory = contextFactory;
             _sendGridFactory = sendGridFactory;
@@ -36,7 +36,7 @@ namespace OccupancyTracker.Service
             while (await _timer.WaitForNextTickAsync(stoppingToken)
                 && !stoppingToken.IsCancellationRequested)
             {
-                while (ProcessEmails(1, stoppingToken)) ;
+                while (await ProcessEmailsAsync(1, stoppingToken)) ;
             }
         }
 
@@ -46,20 +46,20 @@ namespace OccupancyTracker.Service
         /// <param name="emailProcessorPointerId">The ID of the email processor pointer.</param>
         /// <param name="stoppingToken">Token to signal the task to stop.</param>
         /// <returns>True if there are more emails to process; otherwise, false.</returns>
-        private bool ProcessEmails(int emailProcessorPointerId, CancellationToken stoppingToken)
+        private async Task<bool> ProcessEmailsAsync(int emailProcessorPointerId, CancellationToken stoppingToken)
         {
             bool continueProcessing = true;
             while (!stoppingToken.IsCancellationRequested && continueProcessing)
             {
-                using var context = _contextFactory.CreateDbContext();
-                var emailProcessorPointer = context.EmailProcessorPointers.FirstOrDefault(x => x.EmailProcessorPointersId == emailProcessorPointerId);
+                using var context = _contextFactory.Create();
+                var emailProcessorPointer = await context.EmailProcessorPointers.FirstOrDefaultAsync(x => x.EmailProcessorPointersId == emailProcessorPointerId, stoppingToken);
                 if (emailProcessorPointer == null)
                 {
                     continueProcessing = false;
                     break;
                 }
 
-                var emailProcessorQueue = context.EmailProcessorQueue.FirstOrDefault(x => x.EmailProcessorQueueId > emailProcessorPointer.EmailProcessorQueueId);
+                var emailProcessorQueue = await context.EmailProcessorQueue.FirstOrDefaultAsync(x => x.EmailProcessorQueueId > emailProcessorPointer.EmailProcessorQueueId, stoppingToken);
                 if (emailProcessorQueue == null || string.IsNullOrEmpty(emailProcessorQueue.EmailProcessorData))
                 {
                     continueProcessing = false;
@@ -67,7 +67,7 @@ namespace OccupancyTracker.Service
                 }
 
                 var sendGridData = JsonSerializer.Deserialize<SendGridData>(emailProcessorQueue.EmailProcessorData);
-                var response = _sendGridFactory.CreateClient().SendEmailAsync(sendGridData.GenerateSingleMessage()).Result;
+                var response = await _sendGridFactory.CreateClient().SendEmailAsync(sendGridData.GenerateSingleMessage(), stoppingToken);
 
                 if (response == null)
                 {
@@ -77,7 +77,7 @@ namespace OccupancyTracker.Service
 
                 emailProcessorPointer.EmailProcessorQueueId = emailProcessorQueue.EmailProcessorQueueId;
                 context.EmailProcessorPointers.Update(emailProcessorPointer);
-                context.SaveChanges();
+                await context.SaveChangesAsync(stoppingToken);
 
                 var emailProcessorHistory = new EmailProcessorHistory
                 {
@@ -89,7 +89,7 @@ namespace OccupancyTracker.Service
                 };
 
                 context.EmailProcessorHistory.Add(emailProcessorHistory);
-                context.SaveChanges();
+                await context.SaveChangesAsync(stoppingToken);
             }
             return continueProcessing;
         }

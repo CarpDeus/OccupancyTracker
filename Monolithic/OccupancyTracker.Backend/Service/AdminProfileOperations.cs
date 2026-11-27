@@ -1,19 +1,19 @@
 using System.Data;
-using Microsoft.EntityFrameworkCore;
+using OccupancyTracker.IRepository;
 using OccupancyTracker.IService;
 using OccupancyTracker.Models;
 
 namespace OccupancyTracker.Service;
 
 public sealed class AdminProfileOperations(
-    IDbContextFactory<OccupancyContext> contexts,
+    IRepositorySessionFactory contexts,
     RequestAuthorizationService authorization,
     IOccAuthorizationService profiles)
 {
     public async Task<FacilityResult<UserInformation>> ExecuteAsync(string sqid, UserInformation? edit = null)
     {
-        await using var db = await contexts.CreateDbContextAsync();
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var db = await contexts.CreateAsync();
+        await using var transaction = await db.BeginTransactionAsync(IsolationLevel.Serializable);
         var actor = await authorization.GetCurrentUserAsync(db);
         if (actor?.IsSuperAdmin != true) return new(OrganizationAccess.Forbidden);
         var target = await db.UserInformation.SingleOrDefaultAsync(x => x.UserInformationSqid == sqid);
