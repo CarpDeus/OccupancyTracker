@@ -886,6 +886,43 @@ public class AuthorizationTests
     }
 
     [Test]
+    public async Task GetFromStateAsync_FirstCreatedUserBecomesSuperAdmin_AndLaterUsersDoNot()
+    {
+        var factory = new ContextFactory();
+        await using (var context = factory.CreateDbContext())
+            await context.Database.EnsureCreatedAsync();
+        var authorization = new OccAuthorizationService(factory, new TestSqids(), null!);
+
+        var firstLogin = new AuthenticationState(Principal(
+            new Claim(ClaimTypes.NameIdentifier, "auth0|first"),
+            new Claim(ClaimTypes.Email, "first@example.com"),
+            new Claim(ClaimTypes.GivenName, "First"),
+            new Claim(ClaimTypes.Surname, "User"),
+            new Claim("email_verified", "true")));
+        var firstUser = await authorization.GetFromStateAsync(firstLogin);
+
+        firstUser!.IsSuperAdmin.Should().BeTrue();
+        firstLogin.User.IsInRole("SuperAdmin").Should().BeTrue();
+
+        var secondLogin = new AuthenticationState(Principal(
+            new Claim(ClaimTypes.NameIdentifier, "auth0|second"),
+            new Claim(ClaimTypes.Email, "second@example.com"),
+            new Claim(ClaimTypes.GivenName, "Second"),
+            new Claim(ClaimTypes.Surname, "User"),
+            new Claim("email_verified", "true")));
+        var secondUser = await authorization.GetFromStateAsync(secondLogin);
+
+        secondUser!.IsSuperAdmin.Should().BeFalse();
+
+        var returningFirstLogin = new AuthenticationState(Principal(
+            new Claim(ClaimTypes.NameIdentifier, "auth0|first"),
+            new Claim(ClaimTypes.Email, "first@example.com"),
+            new Claim("email_verified", "true")));
+        var returningFirstUser = await authorization.GetFromStateAsync(returningFirstLogin);
+        returningFirstUser!.IsSuperAdmin.Should().BeTrue();
+    }
+
+    [Test]
     public void ResourceAuthorization_UnknownAndOutOfScopeRoles_ReturnsNoAccess()
     {
         // Arrange

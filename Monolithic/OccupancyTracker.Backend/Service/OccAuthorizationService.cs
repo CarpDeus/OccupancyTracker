@@ -111,6 +111,7 @@ namespace OccupancyTracker.Service
 
             if (userInformation == null)
             {
+                var isFirstUser = !await _context.UserInformation.AnyAsync();
                 userInformation = new UserInformation(sso.UserSsoInformationId)
                 {
                     EmailAddress = emailAddress,
@@ -119,7 +120,7 @@ namespace OccupancyTracker.Service
                     UserSsoInformationIdLastLoggedIn = sso.UserSsoInformationId,
                     CreatedBy = -1,
                     CreatedDate = DateTime.Now,
-                    IsSuperAdmin = isSuperAdmin
+                    IsSuperAdmin = isSuperAdmin || isFirstUser
                 };
 
                 _context.UserInformation.Add(userInformation);
@@ -132,7 +133,7 @@ namespace OccupancyTracker.Service
             else
             {
                 userInformation.UserSsoInformationIdLastLoggedIn = sso.UserSsoInformationId;
-                userInformation.IsSuperAdmin = isSuperAdmin;
+                userInformation.IsSuperAdmin = userInformation.IsSuperAdmin || isSuperAdmin;
                 _context.UserInformation.Update(userInformation);
                 await _context.SaveChangesAsync();
             }
@@ -246,13 +247,14 @@ namespace OccupancyTracker.Service
             var emailVerified = claims.Any(c => c.Type == "email_verified" && string.Equals(c.Value, "true", StringComparison.OrdinalIgnoreCase));
             var isSuperAdmin = claims.Any(c => c.Type == "https://occupancy-tracker.secure-scalable.solutions/roles" && c.Value == "SuperAdmin");
 
-            if (isSuperAdmin && !state.User.IsInRole("SuperAdmin"))
+            var userInformation = await ResolveSsoAsync(nameIdentifier, givenName, surname, picture, emailAddress, emailVerified, isSuperAdmin);
+            if (userInformation.IsSuperAdmin && !state.User.IsInRole("SuperAdmin"))
             {
-                var claimsIdentity = (ClaimsIdentity)state.User.Identity;
-                claimsIdentity.AddClaim(new Claim(ClaimTypes.Role, "SuperAdmin"));
+                var claimsIdentity = state.User.Identities.FirstOrDefault(identity => identity.IsAuthenticated);
+                claimsIdentity?.AddClaim(new Claim(ClaimTypes.Role, "SuperAdmin"));
             }
 
-            return await ResolveSsoAsync(nameIdentifier, givenName, surname, picture, emailAddress, emailVerified, isSuperAdmin);
+            return userInformation;
         }
 
 
