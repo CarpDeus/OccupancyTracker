@@ -1065,6 +1065,7 @@ public class AuthorizationTests
                     ["Oidc:Authority"] = issuer, ["Oidc:ClientId"] = "client",
                     ["Oidc:ClientSecret"] = "secret", ["Oidc:CallbackPath"] = "/signin-oidc",
                     ["Oidc:PublicOrigin"] = "https://localhost", ["Oidc:UiCallback"] = "https://ui.example/sso-callback",
+                    ["Oidc:RequireVerifiedEmail"] = "true",
                     ["Oidc:SuperAdminGroup"] = "admins", ["Jwt:Issuer"] = "occupancy", ["Jwt:Audience"] = audience,
                     ["Jwt:SigningKey"] = signingKey, ["DataProtection:KeyPath"] = Path.Combine(Path.GetTempPath(), "occupancy-test-keys"),
                     ["ConnectionStrings:Occupancy"] = "Server=unused;Database=unused;TrustServerCertificate=True"
