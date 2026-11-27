@@ -35,7 +35,7 @@ public sealed class SsoService(
             new(ClaimTypes.GivenName, GetClaim(claims, "given_name", ClaimTypes.GivenName)),
             new(ClaimTypes.Surname, GetClaim(claims, "family_name", ClaimTypes.Surname)),
             new("picture", GetClaim(claims, "picture")),
-            new("email_verified", isAdmin ? "true" : GetClaim(claims, "email_verified"))
+            new("email_verified", isAdmin || !options.RequireVerifiedEmail ? "true" : GetClaim(claims, "email_verified"))
         };
         if (isAdmin) resolvedClaims.Add(new Claim(RolesClaim, "SuperAdmin"));
         var user = await authorization.GetFromStateAsync(new AuthenticationState(

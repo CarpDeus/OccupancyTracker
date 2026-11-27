@@ -30,6 +30,7 @@ also require the SendGrid API key and the public UI hostname.
     "UiCallback": "https://<ui-hostname>/sso-callback",
     "GroupClaim": "groups",
     "SuperAdminGroup": "<exact-admin-group-name>",
+    "RequireVerifiedEmail": true,
     "Scopes": [ "openid", "profile", "email", "groups" ]
   },
   "Jwt": {
@@ -74,8 +75,8 @@ callback. `UiCallback` is a single trusted, absolute UI URL and must end in
 `/sso-callback`. The API never accepts a caller-provided UI return URL.
 `Authority` uses the provider's discovery URL base. Keep it unchanged to retain
 existing subject links; after changing providers, verified email is required to
-link the new subject to an existing account, except for configured SuperAdmin
-group members whose email is assumed verified.
+link the new subject to an existing account when `RequireVerifiedEmail` is
+enabled, except for configured SuperAdmin group members whose email is assumed verified.
 
 Configure the provider to return `email`, `email_verified`, and the configured
 `GroupClaim` in the ID token or UserInfo response. The group claim may be an
@@ -91,7 +92,13 @@ are managed locally.
 Membership in the configured `SuperAdminGroup` also establishes email
 verification for account linking when `email_verified` is false or absent.
 A non-empty email is still required. Other users must supply
-`email_verified: true`. This trusts the provider's SuperAdmin group assignment
+`email_verified: true` when `Oidc:RequireVerifiedEmail` is enabled (default `true`).
+Set it to `false`, or set the API environment variable
+`Oidc__RequireVerifiedEmail=false`, to allow account linking when the provider
+reports false or omits verification. Restart the API after changing this option.
+Disabling verification trusts provider-supplied emails to link existing accounts,
+so use it only with a trusted provider that controls email assignment.
+This trusts the provider's SuperAdmin group assignment
 to authorize linking an existing account by email; restrict who can assign
 membership to that group. Stored privileges and unmapped provider role claims
 do not bypass verification.
@@ -99,7 +106,7 @@ do not bypass verification.
 A 403 at `/api/auth/callback` means OIDC authentication completed but local
 account resolution was rejected. Check the API's `OidcSignIn` warning using
 the response's `traceId`. A new subject requires a non-empty email and
-`email_verified: true` unless it belongs to the configured SuperAdmin group;
+`email_verified: true` when verification is required, unless it belongs to the configured SuperAdmin group;
 inactive local accounts are also rejected. Missing groups alone do not prevent
 sign-in, but grant no SuperAdmin access.
 For Authentik, check the selected email scope/property mapping and ensure it
@@ -119,9 +126,8 @@ return {
 
 The attribute must be populated by a real verification process, not by this
 mapping. Follow Authentik's **Verify email addresses** guide to configure that
-process. Do not hard-code `email_verified` to true
-for unverified users or disable this check: verified email is used to link
-existing accounts.
+process. Do not hard-code `email_verified` to true for unverified users.
+Use `Oidc:RequireVerifiedEmail` to control the application check explicitly.
 
 Generate `Jwt:SigningKey` from at least 32 cryptographically random bytes and
 base64-encode it. Keep it private and identical across API replicas. Tokens
