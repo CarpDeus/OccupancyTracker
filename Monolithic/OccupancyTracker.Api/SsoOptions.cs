@@ -12,6 +12,7 @@ public sealed class SsoOptions
     public required Uri UiCallback { get; init; }
     public required string GroupClaim { get; init; }
     public required string SuperAdminGroup { get; init; }
+    public bool RequireVerifiedEmail { get; init; } = true;
     public required string[] Scopes { get; init; }
     public required string Issuer { get; init; }
     public required string Audience { get; init; }
@@ -54,6 +55,7 @@ public sealed class SsoOptions
             Authority = authority.TrimEnd('/'), ClientId = Require("Oidc:ClientId"),
             ClientSecret = Require("Oidc:ClientSecret"), CallbackPath = callback, PublicOrigin = origin!, UiCallback = uiUri!,
             GroupClaim = config["Oidc:GroupClaim"] ?? "groups", SuperAdminGroup = Require("Oidc:SuperAdminGroup"),
+            RequireVerifiedEmail = config.GetValue("Oidc:RequireVerifiedEmail", true),
             Scopes = scopes, Issuer = Require("Jwt:Issuer"), Audience = Require("Jwt:Audience"),
             SigningKey = key, ExpiryMinutes = expiry
         };

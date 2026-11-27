@@ -987,6 +987,44 @@ public class AuthorizationTests
     }
 
     [Test]
+    public async Task SsoExchange_VerificationDisabled_AllowsUnverifiedEmailButNotMissingEmail()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Oidc:Authority"] = "https://identity.example",
+            ["Oidc:ClientId"] = "client", ["Oidc:ClientSecret"] = "secret",
+            ["Oidc:CallbackPath"] = "/signin-oidc", ["Oidc:PublicOrigin"] = "https://api.example",
+            ["Oidc:UiCallback"] = "https://ui.example/sso-callback", ["Oidc:SuperAdminGroup"] = "admins",
+            ["Jwt:Issuer"] = "occupancy", ["Jwt:Audience"] = "api",
+            ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        }).Build();
+        SsoOptions.Load(configuration, false).RequireVerifiedEmail.Should().BeTrue();
+        configuration["Oidc:RequireVerifiedEmail"] = "false";
+        var service = new SsoService(SsoOptions.Load(configuration, false), fixture.Legacy,
+            fixture.Factory, new EphemeralDataProtectionProvider());
+        var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        foreach (var verification in new[] { "", "false" })
+        {
+            var claims = new List<Claim>
+            {
+                new("sub", "unverified-" + verification), new("email", "alice@example.com")
+            };
+            if (verification != "") claims.Add(new Claim("email_verified", verification));
+            var code = await service.CreateExchangeAsync(Principal(claims.ToArray()), SsoOptions.Hash(verifier));
+            var session = await service.ExchangeAsync(code, verifier);
+            session.Should().NotBeNull();
+            new JwtSecurityTokenHandler().ReadJwtToken(session!.AccessToken).Claims
+                .Should().NotContain(c => c.Type == "https://occupancy-tracker.secure-scalable.solutions/roles");
+        }
+        await using (var db = fixture.Factory.CreateDbContext())
+            (await db.UserInformation.CountAsync()).Should().Be(2);
+        await FluentActions.Awaiting(() => service.CreateExchangeAsync(
+            Principal(new Claim("sub", "without-email")), SsoOptions.Hash(verifier)))
+            .Should().ThrowAsync<SecurityException>();
+    }
+
+    [Test]
     public async Task SsoExchange_UnverifiedNewIdentityAndExpiredCode_AreRejected()
     {
         var fixture = await Fixture.CreateAsync();
