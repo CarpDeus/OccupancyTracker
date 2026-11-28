@@ -10,6 +10,15 @@ The current solution has two executable hosts that use configuration:
 `OccupancyTracker.Backend` and `OccupancyTracker.Shared` projects are libraries
 and do not have their own `appsettings.json`.
 
+Both hosts use the standard ASP.NET Core configuration providers. Environment
+variables override matching values in `appsettings.{Environment}.json` and
+`appsettings.json`; file values remain the fallback when no environment value
+is supplied. Command-line arguments have the highest priority. This applies to
+all settings, including connection strings, OIDC/JWT, API addresses, cache,
+arrays, and feature flags. Use `__` for nested keys and numeric array indices
+(for example `enyimMemcached__Servers__0__Address`). Empty or invalid overrides
+are not silently replaced with file values.
+
 ## API: `Monolithic/OccupancyTracker.Api/appsettings.json`
 
 The API requires its SQL Server connection string, OIDC provider and JWT settings,
@@ -165,7 +174,8 @@ Data Protection keys. It does not need any OIDC client or JWT signing settings.
 ```json
 {
   "Api": {
-    "BaseAddress": "https://<api-hostname>/"
+    "BaseAddress": "https://<api-hostname>/",
+    "InternalBaseAddress": "http://api:8080/"
   },
   "DataProtection": { "KeyPath": "<shared-ui-key-directory>" },
   "TrustedProxies": [ "<trusted-proxy-ip>" ]
@@ -174,6 +184,11 @@ Data Protection keys. It does not need any OIDC client or JWT signing settings.
 
 Use HTTPS for `Api:BaseAddress` outside development. The UI permits HTTP only
 for a loopback address while running in the Development environment.
+`Api:InternalBaseAddress` is optional and defaults to `Api:BaseAddress`.
+It controls all server-to-server requests, including readiness and token
+exchange, but never browser redirects. An explicitly configured internal address
+may use HTTP on a trusted private network; tokens travel unencrypted on that
+connection, so use HTTPS when the network is not isolated.
 All UI replicas must share their UI key directory. Use a separate directory
 from the API, protect it at rest and restrict access. Trust only the proxy IPs
 that actually forward requests. Sign-out clears the local UI session; it does
@@ -190,3 +205,62 @@ variables, use double underscores for nested keys, for example:
 The API initializes and migrates its database at startup, so it must be able to
 connect to the configured SQL Server. Run the email and occupancy-log queues on
 exactly one API instance.
+
+## Docker
+
+The root `Dockerfile` has `api` and `ui` targets using .NET 10 multi-stage builds.
+Both run as the non-root `app` user, listen on port 8080, and include health checks.
+The UI image contains the complete publish output, including MudBlazor assets.
+Build separately with `docker build --target api -t occupancy-api .` and
+`docker build --target ui -t occupancy-ui .`, or use Compose:
+
+```sh
+cp .env.api.example .env.api
+cp .env.ui.example .env.ui
+# Edit .env.api and .env.ui before starting.
+docker compose up --build -d
+docker compose ps
+docker compose logs api ui
+```
+
+The example files are for **local Development only** and contain placeholders,
+not working credentials. Generate a signing key with `openssl rand -base64 32`.
+Register `http://localhost:5236/signin-oidc` with your OIDC provider if it allows
+loopback HTTP redirects. Otherwise use HTTPS public endpoints through a proxy.
+The UI is at `http://localhost:5195`. Both published ports bind only to loopback.
+The UI can start while the API is initializing; login shows the readiness
+waiting page until the API is available.
+
+Compose starts Memcached without exposing its port to the host. SQL Server and
+the OIDC provider must already be reachable from the API container; `localhost`
+in a connection string refers to the container, not your host. Use the database's
+network hostname and credentials, and configure its firewall/TLS appropriately.
+For an existing deployment, retain its Sqids alphabets and JWT signing key.
+Supply a valid SendGrid key and HTTPS UI hostname for invitations; local HTTP
+development cannot exercise HTTPS invitation links without a proxy.
+
+`.env.api` and `.env.ui` are ignored by Git and excluded from Docker builds.
+Compose injects their settings at runtime; never pass secrets as build arguments
+or put them in image layers. Environment-file secrets are visible to container
+administrators. Use your deployment's secret-management facilities for production.
+Keep tracked appsettings files free of credentials. To supply an untracked JSON
+fallback, mount it read-only at `/app/appsettings.Production.json` rather than
+copying it into the image; environment variables still override its keys.
+
+The API and UI have separate named key volumes mounted at
+`/var/lib/occupancy/keys`, the image's default `DataProtection:KeyPath`. Compose
+initializes them with the image directory's `app` ownership. Custom bind mounts
+must be writable by UID 1654. Protect and back up both key volumes.
+`docker compose down` preserves them; `docker compose down -v` deletes them and
+invalidates sessions and outstanding exchange codes.
+
+For production, set `ASPNETCORE_ENVIRONMENT=Production` in both environment
+files, set `Api__BaseAddress`, `Oidc__PublicOrigin`, `Oidc__UiCallback`, and
+`OccupancyDomain` to your public HTTPS endpoints, and place both hosts behind
+your TLS reverse proxy. Keep `Api__InternalBaseAddress=http://api:8080/` only on
+a trusted private network (or configure internal HTTPS). Configure
+`TrustedProxies__0` with the actual proxy IP on each host so forwarded HTTPS
+schemes are honored; Blazor also needs WebSocket forwarding. Do not enable
+blanket forwarded-header trust. The provided Compose file is a single-instance
+development setup; apply the replica/background-processor rules above when
+scaling and share each host's key volume across its replicas.

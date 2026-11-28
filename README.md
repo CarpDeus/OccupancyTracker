@@ -28,6 +28,14 @@ The historical `ProfileService.cs` remains excluded from compilation, as before.
 
 ### Running the tracker API and UI
 
+To run in containers, copy `.env.api.example` to `.env.api` and
+`.env.ui.example` to `.env.ui`, fill in the API credentials and a container-reachable
+SQL Server connection string, then run `docker compose up --build -d` from the
+repository root. Open `http://localhost:5195`; the API is at
+`http://localhost:5236`. Compose includes Memcached, but SQL Server and the OIDC
+provider are external prerequisites. See [APPSETTINGS.md](APPSETTINGS.md#docker)
+for configuration, persistent keys, and production deployment requirements.
+
 Configure `ConnectionStrings:Occupancy`, `Sqids`, and `enyimMemcached` on the
 API only. The UI does not need database, Sqids, cache, SendGrid, OIDC provider
 credentials, or JWT signing settings. The API owns the OIDC confidential client
@@ -58,6 +66,10 @@ HTTP is accepted only for loopback in development. Access tokens are sent from
 the Blazor server to the API; expired tokens require another sign-in. Occupancy
 displays refresh every five seconds rather than using the former public SignalR
 hub.
+
+For a private container network, optionally set `Api:InternalBaseAddress` to the
+API's internal address. Server-side requests use that address; browser login
+redirects still use `Api:BaseAddress`. If omitted, both use `Api:BaseAddress`.
 
 `GET /api/ready` returns `{"ready":true}` after API startup when the database is
 reachable, or HTTP 503 with `{"ready":false}` when it is not. Login checks this

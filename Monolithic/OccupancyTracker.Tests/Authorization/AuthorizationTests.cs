@@ -1166,10 +1166,12 @@ public class AuthorizationTests
     public async Task Ui_LoginBindsCallbackToBrowser_AndCreatesLocalSession()
     {
         var oldApi = Environment.GetEnvironmentVariable("Api__BaseAddress");
+        var oldInternalApi = Environment.GetEnvironmentVariable("Api__InternalBaseAddress");
         var oldKeys = Environment.GetEnvironmentVariable("DataProtection__KeyPath");
         try
         {
             Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
+            Environment.SetEnvironmentVariable("Api__InternalBaseAddress", "http://api:8080/");
             Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
             var handler = new ExchangeHandler();
             var readiness = new ReadinessHandler();
@@ -1196,6 +1198,7 @@ public class AuthorizationTests
             QueryHelpers.ParseQuery(waitingLocation.Query)["returnUrl"].ToString().Should().Be("/orgs?tab=1");
             waiting.Headers.CacheControl!.NoStore.Should().BeTrue();
             (await client.GetStringAsync(waiting.Headers.Location)).Should().Contain("Waiting for the backend");
+            readiness.RequestUri!.Host.Should().Be("api");
             readiness.Ready = true;
             var start = await client.GetAsync("/Account/Login?returnUrl=%2Forgs");
             start.StatusCode.Should().Be(HttpStatusCode.Redirect);
@@ -1204,12 +1207,14 @@ public class AuthorizationTests
             var complete = await client.GetAsync("/sso-callback?code=valid");
             complete.StatusCode.Should().Be(HttpStatusCode.Redirect);
             complete.Headers.Location!.OriginalString.Should().Be("/orgs");
+            handler.RequestUri!.Host.Should().Be("api");
             complete.Headers.GetValues("Set-Cookie").Should().Contain(x => x.Contains(".AspNetCore.Cookies="));
             (await client.GetAsync("/sso-callback?code=valid")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         }
         finally
         {
             Environment.SetEnvironmentVariable("Api__BaseAddress", oldApi);
+            Environment.SetEnvironmentVariable("Api__InternalBaseAddress", oldInternalApi);
             Environment.SetEnvironmentVariable("DataProtection__KeyPath", oldKeys);
         }
     }
@@ -1399,9 +1404,11 @@ public class AuthorizationTests
     private sealed class ExchangeHandler : HttpMessageHandler
     {
         public string Challenge { get; set; } = "";
+        public Uri? RequestUri { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            RequestUri = request.RequestUri;
             var payload = await request.Content!.ReadFromJsonAsync<SsoExchangeRequest>(cancellationToken);
             if (request.RequestUri!.AbsolutePath != "/api/auth/exchange" || payload?.Code != "valid" ||
                 SsoOptions.Hash(payload.Verifier) != Challenge)
@@ -1416,9 +1423,11 @@ public class AuthorizationTests
     private sealed class ReadinessHandler : HttpMessageHandler
     {
         public bool Ready { get; set; }
+        public Uri? RequestUri { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            RequestUri = request.RequestUri;
             request.RequestUri!.AbsolutePath.Should().Be("/api/ready");
             return Task.FromResult(new HttpResponseMessage(Ready ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
             {
