@@ -58,43 +58,36 @@ namespace OccupancyTracker
                 options.SlidingExpiration = false;
             });
 
-            var apiAddress = builder.Configuration["Api:BaseAddress"]
-                ?? throw new InvalidOperationException("Api:BaseAddress must be configured.");
-            if (!Uri.TryCreate(apiAddress, UriKind.Absolute, out var apiUri) ||
-                !string.IsNullOrEmpty(apiUri.UserInfo) || !string.IsNullOrEmpty(apiUri.Query) ||
-                !string.IsNullOrEmpty(apiUri.Fragment) ||
-                (apiUri.Scheme != Uri.UriSchemeHttps &&
-                 !(builder.Environment.IsDevelopment() && apiUri.IsLoopback && apiUri.Scheme == Uri.UriSchemeHttp)))
-                throw new InvalidOperationException("Api:BaseAddress must use HTTPS except for localhost in development.");
-            apiUri = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/");
+            var apiAddresses = new ApiAddresses(builder.Configuration, builder.Environment.IsDevelopment());
+            var apiUri = apiAddresses.Public;
             builder.Services.AddHttpClient("sso", client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<ApiReadinessClient>(client =>
             {
-                client.BaseAddress = apiUri;
+                client.BaseAddress = apiAddresses.Internal;
                 client.Timeout = TimeSpan.FromSeconds(3);
             }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<TrackerApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<ProfileApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<OrganizationApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<PublicContentApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<FacilityApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<OrganizationUserApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<AdminApiClient>(client =>
-                client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
+                client.BaseAddress = apiAddresses.Internal)
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddSingleton<NavigatorService>();
 

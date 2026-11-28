@@ -1,0 +1,14 @@
+.git
+.github
+**/bin
+**/obj
+**/.vs
+**/node_modules
+**/TestResults
+**/appsettings.*.json
+!**/appsettings.Development.json
+**/*.user
+**/*.pfx
+**/*.pem
+.env*
+*.log

@@ -1,0 +1,33 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    env_file: .env.api
+    ports:
+      - "127.0.0.1:5236:8080"
+    volumes:
+      - api-keys:/var/lib/occupancy/keys
+    depends_on:
+      - memcached
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      target: ui
+    env_file: .env.ui
+    ports:
+      - "127.0.0.1:5195:8080"
+    volumes:
+      - ui-keys:/var/lib/occupancy/keys
+    restart: unless-stopped
+
+  memcached:
+    image: memcached:1.6-alpine
+    command: ["memcached", "-m", "64"]
+    restart: unless-stopped
+
+volumes:
+  api-keys:
+  ui-keys:
