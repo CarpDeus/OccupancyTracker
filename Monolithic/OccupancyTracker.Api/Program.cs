@@ -122,7 +122,8 @@ _ = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor
 if (string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("Occupancy")))
     throw new InvalidOperationException("Connection string 'Occupancy' not found.");
 app.UseForwardedHeaders();
-app.UseHttpsRedirection();
+if (app.Configuration.GetValue("HttpsRedirection:Enabled", true))
+    app.UseHttpsRedirection();
 app.UseEnyimMemcached();
 app.UseAuthentication();
 app.UseAuthorization();

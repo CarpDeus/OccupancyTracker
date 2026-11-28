@@ -196,6 +196,14 @@ not sign out of the identity provider.
 
 ## Local development and deployment
 
+Both hosts enable HTTP-to-HTTPS redirects by default. Set
+`HttpsRedirection:Enabled` to `false` in each host's configuration, or
+`HttpsRedirection__Enabled=false` in both `.env.api` and `.env.ui`, when a
+reverse proxy handles TLS and redirects. Restart the hosts after changing it.
+This disables only the application's redirect middleware: production public
+URLs must still use HTTPS, secure cookies and UI HSTS remain enabled, and
+forwarded headers must still come from configured trusted proxies.
+
 The repository's Development settings already point the UI at the local API.
 Keep credentials out of those tracked files too. Supply secrets through the
 appropriate secret store or environment variables. For ASP.NET Core environment
@@ -224,7 +232,9 @@ docker compose logs api ui
 ```
 
 The example files are for **local Development only** and contain placeholders,
-not working credentials. Generate a signing key with `openssl rand -base64 32`.
+not working credentials. They disable application HTTPS redirects so the
+containers can serve HTTP locally or behind a TLS proxy.
+Generate a signing key with `openssl rand -base64 32`.
 Register `http://localhost:5236/signin-oidc` with your OIDC provider if it allows
 loopback HTTP redirects. Otherwise use HTTPS public endpoints through a proxy.
 The UI is at `http://localhost:5195`. Both published ports bind only to loopback.
@@ -258,7 +268,10 @@ For production, set `ASPNETCORE_ENVIRONMENT=Production` in both environment
 files, set `Api__BaseAddress`, `Oidc__PublicOrigin`, `Oidc__UiCallback`, and
 `OccupancyDomain` to your public HTTPS endpoints, and place both hosts behind
 your TLS reverse proxy. Keep `Api__InternalBaseAddress=http://api:8080/` only on
-a trusted private network (or configure internal HTTPS). Configure
+a trusted private network (or configure internal HTTPS). Set
+`HttpsRedirection__Enabled=false` on both hosts when the proxy handles HTTPS
+redirects; this also lets the API serve internal HTTP requests without redirecting.
+Configure
 `TrustedProxies__0` with the actual proxy IP on each host so forwarded HTTPS
 schemes are honored; Blazor also needs WebSocket forwarding. Do not enable
 blanket forwarded-header trust. The provided Compose file is a single-instance
