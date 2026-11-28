@@ -129,7 +129,8 @@ namespace OccupancyTracker
                 app.UseHsts();
             }
 
-            app.UseHttpsRedirection();
+            if (app.Configuration.GetValue("HttpsRedirection:Enabled", true))
+                app.UseHttpsRedirection();
             app.MapStaticAssets();
             app.UseAuthentication();
             app.UseAuthorization();

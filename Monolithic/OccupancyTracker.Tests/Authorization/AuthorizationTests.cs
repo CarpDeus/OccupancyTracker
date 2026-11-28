@@ -1219,6 +1219,85 @@ public class AuthorizationTests
         }
     }
 
+    [TestCase(null)]
+    [TestCase("true")]
+    [TestCase("false")]
+    public async Task Api_HttpsRedirection_CanBeDisabled(string? enabled)
+    {
+        using var app = new WebApplicationFactory<global::Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["HttpsRedirection:Enabled"] = enabled,
+                    ["DataProtection:KeyPath"] = Path.Combine(Path.GetTempPath(), "occupancy-test-keys"),
+                    ["ConnectionStrings:Occupancy"] = "Server=unused;Database=unused;TrustServerCertificate=True"
+                }));
+            builder.ConfigureServices(services =>
+            {
+                foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) &&
+                    (d.ImplementationType == typeof(DatabaseInitializationService) ||
+                     d.ImplementationType == typeof(OccupancyLogProcessor) ||
+                     d.ImplementationType == typeof(OccupancyEmailProcessor))).ToList())
+                    services.Remove(descriptor);
+                services.AddSingleton(TestSsoOptions());
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                services.Configure<Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionOptions>(options => options.HttpsPort = 443);
+            });
+        });
+        using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://api.example"), AllowAutoRedirect = false
+        });
+        using var response = await client.GetAsync("/api/public-content/secret");
+        response.StatusCode.Should().Be(enabled == "false" ? HttpStatusCode.NotFound : HttpStatusCode.TemporaryRedirect);
+        if (enabled == "false")
+            response.Headers.Location.Should().BeNull();
+        else
+            response.Headers.Location.Should().Be(new Uri("https://api.example/api/public-content/secret"));
+    }
+
+    [TestCase(null)]
+    [TestCase("true")]
+    [TestCase("false")]
+    public async Task Ui_HttpsRedirection_CanBeDisabled(string? enabled)
+    {
+        var oldApi = Environment.GetEnvironmentVariable("Api__BaseAddress");
+        var oldKeys = Environment.GetEnvironmentVariable("DataProtection__KeyPath");
+        try
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
+            using var app = new WebApplicationFactory<OccupancyTracker.Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment("Production");
+                builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                    new Dictionary<string, string?> { ["HttpsRedirection:Enabled"] = enabled }));
+                builder.ConfigureServices(services =>
+                {
+                    services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                    services.Configure<Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionOptions>(options => options.HttpsPort = 443);
+                });
+            });
+            using var client = app.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("http://ui.example"), AllowAutoRedirect = false
+            });
+            using var response = await client.GetAsync("/_content/MudBlazor/MudBlazor.min.css");
+            response.StatusCode.Should().Be(enabled == "false" ? HttpStatusCode.OK : HttpStatusCode.TemporaryRedirect);
+            if (enabled == "false")
+                response.Headers.Location.Should().BeNull();
+            else
+                response.Headers.Location.Should().Be(new Uri("https://ui.example/_content/MudBlazor/MudBlazor.min.css"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Api__BaseAddress", oldApi);
+            Environment.SetEnvironmentVariable("DataProtection__KeyPath", oldKeys);
+        }
+    }
+
     [TestCase("Development")]
     [TestCase("Production")]
     public async Task Ui_StaticAssets_ServesMudBlazorStylesAndScripts(string environment)
