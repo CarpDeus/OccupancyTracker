@@ -4,9 +4,10 @@ COPY Monolithic/OccupancyTracker.Shared/OccupancyTracker.Shared.csproj Monolithi
 COPY Monolithic/OccupancyTracker.Backend/OccupancyTracker.Backend.csproj Monolithic/OccupancyTracker.Backend/
 COPY Monolithic/OccupancyTracker.Api/OccupancyTracker.Api.csproj Monolithic/OccupancyTracker.Api/
 COPY Monolithic/OccupancyTracker/OccupancyTracker.csproj Monolithic/OccupancyTracker/
+# Restore must see Razor components to include the Blazor framework assets.
+COPY Monolithic/ Monolithic/
 RUN dotnet restore Monolithic/OccupancyTracker.Api/OccupancyTracker.Api.csproj \
     && dotnet restore Monolithic/OccupancyTracker/OccupancyTracker.csproj
-COPY Monolithic/ Monolithic/
 
 FROM build AS api-publish
 RUN dotnet publish Monolithic/OccupancyTracker.Api/OccupancyTracker.Api.csproj \
@@ -36,5 +37,6 @@ ENTRYPOINT ["dotnet", "OccupancyTracker.Api.dll"]
 FROM runtime AS ui
 COPY --from=ui-publish /out/ ./
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl --fail --silent http://localhost:8080/ || exit 1
+    CMD curl --fail --silent --output /dev/null http://localhost:8080/ \
+        && curl --fail --silent --output /dev/null http://localhost:8080/_framework/blazor.web.js || exit 1
 ENTRYPOINT ["dotnet", "OccupancyTracker.dll"]

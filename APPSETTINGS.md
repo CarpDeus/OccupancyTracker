@@ -277,3 +277,7 @@ schemes are honored; Blazor also needs WebSocket forwarding. Do not enable
 blanket forwarded-header trust. The provided Compose file is a single-instance
 development setup; apply the replica/background-processor rules above when
 scaling and share each host's key volume across its replicas.
+
+The UI health check verifies both the home page and `/_framework/blazor.web.js`.
+If buttons do not respond, check that this script is served through the public
+proxy and that the proxy forwards Blazor's interactive connection.
