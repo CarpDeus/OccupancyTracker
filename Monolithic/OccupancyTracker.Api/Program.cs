@@ -127,6 +127,26 @@ app.UseEnyimMemcached();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/api/ready", async (HttpContext context, IHostApplicationLifetime lifetime,
+    IDbContextFactory<OccupancyContext> contexts, ILoggerFactory loggers) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    if (!lifetime.ApplicationStarted.IsCancellationRequested || lifetime.ApplicationStopping.IsCancellationRequested)
+        return Results.Json(new { ready = false }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    try
+    {
+        await using var db = await contexts.CreateDbContextAsync(context.RequestAborted);
+        if (await db.Database.CanConnectAsync(context.RequestAborted))
+            return Results.Ok(new { ready = true });
+    }
+    catch (Exception ex) when (ex is System.Data.Common.DbException or InvalidOperationException or TimeoutException)
+    {
+        loggers.CreateLogger("Readiness").LogWarning(ex, "Database readiness check failed.");
+    }
+    return Results.Json(new { ready = false }, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
 app.MapGet("/api/public-content/{page}", async (string page, PublicContentService contentService) =>
 {
     var content = await contentService.GetAsync(page);

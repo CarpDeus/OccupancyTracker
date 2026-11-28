@@ -70,6 +70,11 @@ namespace OccupancyTracker
             builder.Services.AddHttpClient("sso", client =>
                 client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHttpClient<ApiReadinessClient>(client =>
+            {
+                client.BaseAddress = apiUri;
+                client.Timeout = TimeSpan.FromSeconds(3);
+            }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<TrackerApiClient>(client =>
                 client.BaseAddress = new Uri(apiUri.AbsoluteUri.TrimEnd('/') + "/"))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -137,10 +142,14 @@ namespace OccupancyTracker
             app.UseAuthorization();
             app.UseAntiforgery();
             var loginCookieName = app.Environment.IsDevelopment() ? "OccupancyTracker.Login" : "__Host-OccupancyTracker.Login";
-            app.MapGet("/Account/Login", (HttpContext httpContext, IDataProtectionProvider protection, string returnUrl = "/") =>
+            app.MapGet("/Account/Login", async (HttpContext httpContext, IDataProtectionProvider protection,
+                ApiReadinessClient readiness, string returnUrl = "/") =>
             {
                 if (!LocalRedirect.IsSafe(returnUrl))
                     return Results.BadRequest();
+                httpContext.Response.Headers.CacheControl = "no-store";
+                if (!await readiness.IsReadyAsync(httpContext.RequestAborted))
+                    return Results.LocalRedirect(QueryHelpers.AddQueryString("/backend-wait", "returnUrl", returnUrl));
                 var verifier = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
                 var challenge = WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.UTF8.GetBytes(verifier)));
                 var payload = protection.CreateProtector("OccupancyTracker.Login.v1").Protect(verifier + "\n" + returnUrl);

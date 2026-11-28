@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using OccupancyTracker.Models;
 using OccupancyTracker.Service;
@@ -9,6 +10,30 @@ namespace OccupancyTracker.Tests.Clients;
 
 public sealed class ProfileAndPublicContentClientTests
 {
+    [TestCase(HttpStatusCode.OK, true, true)]
+    [TestCase(HttpStatusCode.OK, false, false)]
+    [TestCase(HttpStatusCode.ServiceUnavailable, true, false)]
+    public async Task Readiness_RequiresSuccessfulExplicitPositiveResponse(HttpStatusCode status, bool ready, bool expected)
+    {
+        var handler = new RecordingHandler(status, new { ready });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
+        var client = new ApiReadinessClient(http, NullLogger<ApiReadinessClient>.Instance);
+
+        (await client.IsReadyAsync()).Should().Be(expected);
+        handler.Path.Should().Be("/api/ready");
+    }
+
+    [Test]
+    public async Task Readiness_InvalidResponseOrUnreachableApi_IsNotReady()
+    {
+        using var malformed = new HttpClient(new RecordingHandler(HttpStatusCode.OK, "not a status"))
+            { BaseAddress = new Uri("https://api.example/") };
+        using var unreachable = new HttpClient(new UnreachableHandler())
+            { BaseAddress = new Uri("https://api.example/") };
+        (await new ApiReadinessClient(malformed, NullLogger<ApiReadinessClient>.Instance).IsReadyAsync()).Should().BeFalse();
+        (await new ApiReadinessClient(unreachable, NullLogger<ApiReadinessClient>.Instance).IsReadyAsync()).Should().BeFalse();
+    }
+
     [Test]
     public async Task ProfileApiClient_SaveAsyncWithoutToken_ThrowsInvalidOperationException()
     {
@@ -98,5 +123,12 @@ public sealed class ProfileAndPublicContentClientTests
                 : JsonContent.Create(responseBody);
             return Task.FromResult(new HttpResponseMessage(statusCode) { Content = content });
         }
+
+    }
+
+    private sealed class UnreachableHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("Backend unavailable");
     }
 }

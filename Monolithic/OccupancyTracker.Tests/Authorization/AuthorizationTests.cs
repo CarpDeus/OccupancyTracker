@@ -1099,6 +1099,15 @@ public class AuthorizationTests
         {
             BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false, HandleCookies = true
         });
+        var ready = await client.GetAsync("/api/ready");
+        ready.StatusCode.Should().Be(HttpStatusCode.OK);
+        ready.Headers.CacheControl!.NoStore.Should().BeTrue();
+        (await ready.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ready").GetBoolean().Should().BeTrue();
+        fixture.Factory.FailConnections = true;
+        var unavailable = await client.GetAsync("/api/ready");
+        unavailable.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await unavailable.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ready").GetBoolean().Should().BeFalse();
+        fixture.Factory.FailConnections = false;
         var verifier = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
         var start = await client.GetAsync("/api/auth/sign-in?challenge=" + SsoOptions.Hash(verifier));
         start.StatusCode.Should().Be(HttpStatusCode.Redirect);
@@ -1163,6 +1172,7 @@ public class AuthorizationTests
             Environment.SetEnvironmentVariable("Api__BaseAddress", "https://api.example/");
             Environment.SetEnvironmentVariable("DataProtection__KeyPath", Path.Combine(Path.GetTempPath(), "occupancy-test-ui-keys"));
             var handler = new ExchangeHandler();
+            var readiness = new ReadinessHandler();
             using var app = new WebApplicationFactory<OccupancyTracker.Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Development");
@@ -1170,6 +1180,7 @@ public class AuthorizationTests
                 {
                     services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                     services.AddHttpClient("sso").ConfigurePrimaryHttpMessageHandler(() => handler);
+                    services.AddHttpClient<ApiReadinessClient>().ConfigurePrimaryHttpMessageHandler(() => readiness);
                 });
             });
             using var client = app.CreateClient(new WebApplicationFactoryClientOptions
@@ -1178,6 +1189,14 @@ public class AuthorizationTests
             });
             (await client.GetAsync("/sso-callback?code=missing")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
             (await client.GetAsync("/Account/Login?returnUrl=%2F%2Fevil.example")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var waiting = await client.GetAsync("/Account/Login?returnUrl=%2Forgs%3Ftab%3D1");
+            waiting.StatusCode.Should().Be(HttpStatusCode.Redirect);
+            var waitingLocation = new Uri(client.BaseAddress!, waiting.Headers.Location!);
+            waitingLocation.AbsolutePath.Should().Be("/backend-wait");
+            QueryHelpers.ParseQuery(waitingLocation.Query)["returnUrl"].ToString().Should().Be("/orgs?tab=1");
+            waiting.Headers.CacheControl!.NoStore.Should().BeTrue();
+            (await client.GetStringAsync(waiting.Headers.Location)).Should().Contain("Waiting for the backend");
+            readiness.Ready = true;
             var start = await client.GetAsync("/Account/Login?returnUrl=%2Forgs");
             start.StatusCode.Should().Be(HttpStatusCode.Redirect);
             start.Headers.Location!.Host.Should().Be("api.example");
@@ -1394,6 +1413,20 @@ public class AuthorizationTests
         }
     }
 
+    private sealed class ReadinessHandler : HttpMessageHandler
+    {
+        public bool Ready { get; set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.RequestUri!.AbsolutePath.Should().Be("/api/ready");
+            return Task.FromResult(new HttpResponseMessage(Ready ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
+            {
+                Content = JsonContent.Create(new { ready = Ready })
+            });
+        }
+    }
+
     private sealed class FakeAdminUtils : IAdminUtilsService
     {
         public int RequestCount { get; private set; }
@@ -1430,6 +1463,7 @@ public class AuthorizationTests
     {
         private readonly SqliteConnection connection;
         private readonly DbContextOptions<OccupancyContext> options;
+        public bool FailConnections { get; set; }
 
         public ContextFactory()
         {
@@ -1439,7 +1473,9 @@ public class AuthorizationTests
             options = new DbContextOptionsBuilder<OccupancyContext>().UseSqlite(connection).Options;
         }
 
-        public OccupancyContext CreateDbContext() => new(options);
+        public OccupancyContext CreateDbContext() => FailConnections
+            ? new(new DbContextOptionsBuilder<OccupancyContext>().UseSqlite("Data Source=/nonexistent/occupancy-test.db").Options)
+            : new(options);
         public IRepositorySession Create() => new RepositorySessionFactory(this).Create();
         public Task<IRepositorySession> CreateAsync(CancellationToken cancellationToken = default) =>
             new RepositorySessionFactory(this).CreateAsync(cancellationToken);
