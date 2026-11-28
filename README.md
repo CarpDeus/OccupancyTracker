@@ -59,6 +59,12 @@ the Blazor server to the API; expired tokens require another sign-in. Occupancy
 displays refresh every five seconds rather than using the former public SignalR
 hub.
 
+`GET /api/ready` returns `{"ready":true}` after API startup when the database is
+reachable, or HTTP 503 with `{"ready":false}` when it is not. Login checks this
+endpoint from the UI server and waits, retrying automatically, if the API is
+unavailable. Replicas with database initialization disabled still require the
+initializing replica to finish first.
+
 The UI maps .NET static-asset endpoints and loads package asset manifests so
 MudBlazor CSS and JavaScript are available outside Development too. Deploy the
 complete `dotnet publish` output, including `wwwroot` and static-asset manifests.

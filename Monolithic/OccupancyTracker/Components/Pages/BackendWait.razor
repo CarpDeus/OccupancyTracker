@@ -1,0 +1,49 @@
+@page "/backend-wait"
+@implements IDisposable
+@inject ApiReadinessClient Readiness
+
+<PageTitle>Waiting for backend</PageTitle>
+
+<div class="pa-4" role="status" aria-live="polite">
+    <h1>Waiting for the backend</h1>
+    <p>The backend is not ready yet. Sign-in will continue automatically when it is ready.</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private readonly CancellationTokenSource cancellation = new();
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _ = WaitForBackendAsync();
+        return Task.CompletedTask;
+    }
+
+    private async Task WaitForBackendAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            do
+            {
+                if (await Readiness.IsReadyAsync(cancellation.Token))
+                {
+                    var returnUrl = LocalRedirect.IsSafe(ReturnUrl) ? ReturnUrl! : "/";
+                    NavigationManager.NavigateTo($"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+                    return;
+                }
+            }
+            while (await timer.WaitForNextTickAsync(cancellation.Token));
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+    }
+
+    public void Dispose()
+    {
+        cancellation.Cancel();
+        cancellation.Dispose();
+    }
+}
