@@ -4,18 +4,18 @@
 
 
 <MudForm @ref="form" Model="organization" @bind-ReadOnly="@readOnly" Validation="@(validationRules.ValidateValue)" ValidationDelay="0">
-    <MudTextField ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" Label="Organization Name" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationDescription" Label="Organization Description" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Lines="numberDescriptionLines"></MudTextField>
+    <MudTextField ShrinkLabel  Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationName" For="@(() => organization.OrganizationName)" Label="Organization Name" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationDescription" For="@(() => organization.OrganizationDescription)" Label="Organization Description" Variant="Variant.Filled" @bind-ReadOnly="@readOnly" Lines="numberDescriptionLines"></MudTextField>
     <hr />
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine1" Label="Address Line 1" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine2" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.City" Required="true" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.State" Required="true" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.PostalCode" Required="true" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.Country" Required="true" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine1" For="@(() => organization.OrganizationAddress.AddressLine1)" Label="Address Line 1" Required="true" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField  ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.AddressLine2" For="@(() => organization.OrganizationAddress.AddressLine2)" Label="Address Line 2" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.City" For="@(() => organization.OrganizationAddress.City)" Required="true" Label="City" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.State" For="@(() => organization.OrganizationAddress.State)" Required="true" Label="State" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.PostalCode" For="@(() => organization.OrganizationAddress.PostalCode)" Required="true" Label="Zip Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.OrganizationAddress.Country" For="@(() => organization.OrganizationAddress.Country)" Required="true" Label="Country" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     <hr />
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.CountryCode" Required="true" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
-    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.Number" Required="true" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.CountryCode" For="@(() => organization.PhoneNumber.CountryCode)" Required="true" Label="Country Code" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
+    <MudTextField ShrinkLabel Margin="Margin.Dense" T="string" @bind-Value="organization.PhoneNumber.Number" For="@(() => organization.PhoneNumber.Number)" Required="true" Label="Phone Number" Variant="Variant.Filled" @bind-ReadOnly="@readOnly"></MudTextField>
     @if (userCanEdit && readOnly)
     {
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@CanEdit">Edit</MudButton>
@@ -86,7 +86,7 @@
     private async Task Save()
     {
 
-        await form.Validate();
+        await form.ValidateAsync();
         if (form.IsValid)
         {
 
@@ -116,6 +116,10 @@
                 await OnOrganizationChanged.InvokeAsync(organization);
                 this.StateHasChanged();
             }
+        }
+        else
+        {
+            Snackbar.Add("Please correct the highlighted organization fields before saving.", Severity.Error);
         }
         StateHasChanged();
 
